@@ -1,0 +1,24 @@
+# Local machine config — carries local paths/model names, never committed (see HERMES.local.md header)
+HERMES.local.md
+
+# Runtime data — personal, regenerated locally, not source
+logs/*.jsonl
+logs/*.json
+logs/debug.log
+mnemos/vault/*.db*
+mnemos/vault/hnsw*/
+mnemos/vault/MEMORY.md
+mnemos/dream/
+curator/reflexion.json
+curator/pending/*.json
+curator/approved/*.json
+curator/archived/*.json
+reasoningbank/hnsw/
+reasoningbank/task_log.jsonl
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store

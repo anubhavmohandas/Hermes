@@ -1,0 +1,27 @@
+# HERMES.local.md
+# Machine-specific configuration. NEVER commit this file to git.
+# Read by Apollo at the start of every session.
+
+PLATFORM: cli
+OLLAMA_MODEL: <set-your-local-model-name>
+VAULT_PATH: hermes/mnemos/vault
+OLLAMA_CONTEXT: 256000
+
+# Modules currently wired and answering requests
+ACTIVE_MODULES: research, tasks, documents, mnemos-v2, clio, meta/security, curator, reasoningbank, dream
+
+# Modules that exist in the roadmap but are not wired yet this phase
+INACTIVE_MODULES: delegation, cron, fetcher, connect, kanban, agents, autonomous, browser, meta/tokens, meta/caveman, database, connectors, repomix, webdev, media, nyx
+
+DEBUG_LOG: hermes/logs/debug.log
+REASONING_LOG: hermes/logs/reasoning_seed.jsonl
+REFLEXION_LOG: hermes/logs/reflexion_seed.json
+
+# Tier routing — see brain.py for enforcement logic
+TIER_1: claude-sonnet-5
+TIER_1_COMPLEX: claude-opus-4-8
+TIER_2: ollama-local
+TIER_3: nyx-fallback  # EU/US jurisdiction only, non-sensitive, availability fallback only
+
+# Hard exclusions — architectural, not configurable
+EXCLUDED_APIS: kimi, glm, mimo, minimax, deepseek

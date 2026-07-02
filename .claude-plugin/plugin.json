@@ -1,0 +1,48 @@
+{
+  "name": "hermes",
+  "version": "0.4.0-phase3b",
+  "description": "Hybrid Engine for Research, Memory, Execution & Synthesis. Phase 3B: adds Mnemos v2 (HNSW 3-tier hybrid search), Curator v1 (mistake capture + human-gated proposals), ReasoningBank (reward-scored task memory), Dream (on-demand consolidation).",
+  "skill": "SKILL.md",
+  "hooks": {
+    "PreToolUse": [
+      "hooks/verify.sh"
+    ]
+  },
+  "platform": [
+    "cli"
+  ],
+  "author": "Anubhav Mohandas",
+  "license": "private",
+  "modules": {
+    "active": [
+      "research",
+      "tasks",
+      "documents",
+      "mnemos-v2",
+      "clio-v1",
+      "meta/security",
+      "curator-v1",
+      "reasoningbank",
+      "dream"
+    ],
+    "offline": {
+      "delegation": "3C",
+      "cron": "3C",
+      "fetcher": "3C",
+      "connect": "3C",
+      "kanban": "3C",
+      "nyx": "3D"
+    }
+  },
+  "security_constraints": {
+    "excluded_apis_via_api": [
+      "kimi",
+      "glm",
+      "mimo",
+      "minimax",
+      "deepseek"
+    ],
+    "human_review_mandatory": true,
+    "auto_apply_updates": false
+  }
+}

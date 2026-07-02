@@ -1,0 +1,3 @@
+# Mnemos vault — SQLite WAL+FTS5 store lives here as mnemos.db (git-ignored, machine-local data).
+# MEMORY.md is the human-readable index, capped at 200 lines / 25KB — see memory_index.py.
+# Semantic HNSW index (Mnemos v2) lands in Phase 3B.
