@@ -51,6 +51,7 @@ If any self-check fails, say so plainly in the status line (`✗ brain.py: NOT F
 2. Build a short task description string and run:
    `python3 brain.py check --task "<description>" --model "<model you're about to use>" --via api|local`
    Read the JSON back. If `allowed: false`, stop — do not route, do not retry with a different model silently. Tell the user which tier this requires and why.
+   **If the tier comes back 2 and the platform is CLI:** dispatch the model call through `python3 ollama_client.py chat "<prompt>" [--model NAME]` — this is the actual Tier 2 path (local Ollama, data never leaves the machine). Check readiness first with `python3 ollama_client.py status`; if `tier2_ready` is false, say so and ask the user whether to run on Tier 1 instead — never silently substitute tiers, in either direction. Tokens/latency from the response feed step 2-after's logging.
 3. **Retrieve prior high-reward approaches** for tasks that look similar to this one:
    `python3 reasoningbank/bank.py retrieve "<description>" 5 0.8`
    If it returns hits, they're past approaches that scored reward > 0.8 on a similar task — use them as a starting point, not gospel. If it returns nothing, that's normal (the bank starts empty and only has what's actually been logged) — don't treat an empty result as an error.
@@ -102,13 +103,13 @@ Mnemos is now 3-tier hybrid retrieval (`mnemos/hybrid_search.py`), not just lexi
 - **Tier B (regex):** structured pattern matching (CVE IDs, file paths, function-like identifiers) scanned directly against stored content — independent of FTS5 tokenization.
 - **Tier C (semantic HNSW):** `mnemos/hnsw_index.py`, backed by `mnemos/embedder.py`.
 
-**Be straight with the user about Tier C.** The embedder is a deterministic hashing-trick bag-of-words/char-n-gram vectorizer, NOT a trained semantic model. It catches lexical overlap and partial substring matches (e.g. shared CVE IDs), not paraphrase or conceptual similarity — "logical qubit fault tolerance" will NOT reliably match "quantum error correction" even though a human would consider them related. Tier C confidence is always capped at LOW in `hybrid_search.py`'s resolution logic for exactly this reason. Don't describe a Tier C hit to the user as "HERMES remembered the meaning of X" — it didn't; it found word/trigram overlap.
+**Be straight with the user about Tier C.** The embedder has two backends (`HERMES_EMBEDDER` env var, see `mnemos/embedder.py`). Default `hash`: a deterministic hashing-trick bag-of-words/char-n-gram vectorizer, NOT a trained semantic model — it catches lexical overlap and partial substring matches (e.g. shared CVE IDs), not paraphrase or conceptual similarity; "logical qubit fault tolerance" will NOT reliably match "quantum error correction". Under `hash`, never describe a Tier C hit as "HERMES remembered the meaning of X" — it found word/trigram overlap. Opt-in `ollama`: real semantic embeddings via `nomic-embed-text` (requires a running Ollama; fails loudly rather than silently degrading, because mixing the two embedding spaces would corrupt the index — `hnsw_index.py` records the backend in its meta sidecar and refuses to load a mismatched index). Tier C confidence stays capped at LOW under both backends until the ollama backend has earned trust on real recall data.
 
 Usage:
-- Write every meaningful exchange: `python3 mnemos/store.py write "<session_id>" "<role>" "<content>"` AND `python3 mnemos/hnsw_index.py mnemos/vault/hnsw insert "<content>"` — both stores, so all 3 tiers can find it later.
+- Write every meaningful exchange: `python3 mnemos/store.py write "<session_id>" "<role>" "<content>" [memory_type]` AND `python3 mnemos/hnsw_index.py mnemos/vault/hnsw insert "<content>"` — both stores, so all 3 tiers can find it later. Each message carries one of the blueprint's 4 memory types (`user` / `feedback` / `project` / `reference`); omit the argument and `store.py` classifies deterministically (keyword rules, not LLM — same philosophy as brain.py's sensitivity check). Pass it explicitly when you know better than the heuristic.
 - Search before answering a "what did we decide about X" question: `python3 mnemos/hybrid_search.py "<query>"`. Read the `confidence` field (`HIGH`/`MEDIUM`/`LOW`/`NONE`) and say so — don't present a LOW-confidence Tier C hit with the same certainty as a HIGH-confidence Tier B regex match.
 - The MEMORY.md index (`mnemos/vault/MEMORY.md`) is capped at 200 lines / 25KB — `mnemos/memory_index.py` enforces this. If you're about to write more than that into the index, you're supposed to fail loudly (truncation warning), not silently drop entries. Move detail into topic files instead of growing the index.
-- **Known environment risk:** SQLite (Tier A + regex Tier B) has failed with `disk I/O error` on at least one sandboxed/FUSE-mounted filesystem during development, even though the identical code works on a real local disk. If a write/search call fails outright rather than returning empty, that's diagnostic — check whether the vault path is on a network or synced drive before assuming the code is broken. `hybrid_search.py` degrades to Tier C automatically when Tier A/B fail; it does not crash.
+- **Known environment risk:** SQLite (Tier A + regex Tier B) has failed with `disk I/O error` on at least one sandboxed/FUSE-mounted filesystem during development, even though the identical code works on a real local disk. `store.py init` now runs a write canary and REFUSES the vault loudly at init instead of letting every later write die quietly (`python3 mnemos/store.py canary` checks on demand). If the canary fails, the vault path is on a network/synced/FUSE mount — move it to real local disk. `hybrid_search.py` degrades to Tier C automatically when Tier A/B fail mid-session; it does not crash.
 
 ---
 
@@ -118,11 +119,13 @@ Usage:
 
 **ReasoningBank** (approach memory): `reasoningbank/bank.py` stores `{task, approach, outcome, reward, success, critique, tokens, latency}` per completed task in its own HNSW index, and returns the top-scoring past approaches (reward > 0.8) for a similar new task. This is what §2 step 3/step 3-after wire into the per-request procedure.
 
-**Dream** (`mnemos/dream.py`): on-demand consolidation pass (runs Curator's consolidate step, lock-protected against concurrent runs via `.dream.lock`). Not scheduled automatically yet — Phase 3C's Cron is what will actually trigger this unattended. Until then, invoke it manually, or ask the user if they want it wired to a recurring scheduled task as a bridge.
+**Dream** (`mnemos/dream.py`): on-demand consolidation pass (runs Curator's consolidate step, lock-protected against concurrent runs via `.dream.lock`). Not scheduled automatically yet — Phase 3C's Cron is what will actually trigger this unattended. Bridge available now: a launchd template at `hooks/com.hermes.dream.plist.template` (install steps in `docs/SCHEDULING.md`) runs it daily at 03:30. Scheduling Dream violates no human-gate constraint — it consolidates only; it never approves or applies anything.
 
 ---
 
 ## 5. Frozen-snapshot prompt discipline
+
+**Honesty label (audited 2026-07-02, B4): this is behavioral discipline, not an enforced feature.** On Path C (riding Claude Code), the platform owns the prompt — HERMES cannot freeze, cache, or diff it in code. What follows is how Apollo is expected to *behave*; nothing verifies compliance mechanically.
 
 Treat your own context the way `HERMES_Phase3_Blueprint.docx` §5.1 specifies: stable facts (module list, HERMES.local.md contents, security rules, tier constraints) should be established once at session start and not re-derived every turn. Only re-check things that are genuinely volatile — current tier for a NEW request, current token count if the user asks. Don't re-read HERMES.local.md or re-run the self-check every single message; that's session-start work, not per-turn work.
 
@@ -136,7 +139,9 @@ Not active yet, but the constraint is locked in now so nothing gets built that v
 
 ## 7. Tool result persistence discipline
 
-Don't let a single tool result blow the context window. If a tool result would be very large (raw file dumps, huge search results), summarize or truncate what you carry forward rather than pasting the whole thing into your own reasoning. This is a standing discipline, not a Phase-gated feature — the full 3-layer overflow-protection system (per-tool cap, persist-to-disk, per-turn budget spill) is Phase 3C infrastructure, but the *behavior* of not flooding your own context applies now.
+**Honesty label (audited 2026-07-02, B4): behavioral discipline, not an enforced feature** — same Path C limitation as §5: HERMES cannot intercept or cap tool results in code; the platform owns them.
+
+Don't let a single tool result blow the context window. If a tool result would be very large (raw file dumps, huge search results), summarize or truncate what you carry forward rather than pasting the whole thing into your own reasoning. The full 3-layer overflow-protection system (per-tool cap, persist-to-disk, per-turn budget spill) is Phase 3C infrastructure, and even then only for HERMES-owned subprocess calls — but the *behavior* of not flooding your own context applies now.
 
 ---
 
@@ -165,8 +170,9 @@ If Bash isn't available or is restricted:
 |---|---|---|---|
 | Orchestration/routing | Apollo | 3A | Active (this file) |
 | Tier classification + logging | brain.py | 3A | Active |
-| 7-layer security gate | meta/security/ | 3A | Active |
-| Session store (SQLite WAL+FTS5) | Mnemos v1 | 3A | Active |
+| Tier 2 dispatch (local Ollama, `/api/chat`) | ollama_client.py | 3B | Active (requires Ollama running + OLLAMA_MODEL set — `status` subcommand reports readiness) |
+| 7-layer security gate | meta/security/ | 3A | Active (layers 4+6 fire via write/edit content scan + bash exec-path scan; full skills sweep at SessionStart) |
+| Session store (SQLite WAL+FTS5, 4 memory types) | Mnemos v1 | 3A | Active |
 | MEMORY.md index caps | Mnemos v1 | 3A | Active |
 | Token tracking | Clio v1 | 3A | Active |
 | Research (WebSearch backend) | skills/research/ | 3A | Active |

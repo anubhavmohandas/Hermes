@@ -6,6 +6,9 @@
   "hooks": {
     "PreToolUse": [
       "hooks/verify.sh"
+    ],
+    "SessionStart": [
+      "hooks/skills_scan.sh"
     ]
   },
   "platform": [
@@ -24,7 +27,8 @@
       "meta/security",
       "curator-v1",
       "reasoningbank",
-      "dream"
+      "dream",
+      "ollama-dispatch"
     ],
     "offline": {
       "delegation": "3C",

@@ -5,6 +5,7 @@ Display/log layer ONLY — never mutates what's actually stored in memory or
 sent to a model; this scrubs what gets written to logs and printed to the
 user. Reimplemented fresh from pattern (hermes-agent P16). No source copied.
 """
+import os
 import re
 import sys
 
@@ -23,17 +24,33 @@ PATTERNS = [
     (re.compile(r"AIza[0-9A-Za-z\-_]{35}"), "GOOGLE_API_KEY"),
     (re.compile(r"xox[baprs]-[0-9a-zA-Z-]{10,}"), "SLACK_TOKEN"),
     (re.compile(r"-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----.*?-----END (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----", re.DOTALL), "PRIVATE_KEY"),
+    # Secret-ish assignments: only redact hex/base64-looking values when they
+    # appear in a key-ish context (secret=, token:, api_key=...). A bare
+    # \b[0-9a-fA-F]{32,64}\b rule redacted every git SHA, MD5/SHA-256 digest,
+    # and CVE PoC hash — for a security researcher that corrupts normal
+    # output (audited 2026-07-02, C2). Bare hex now lives in AGGRESSIVE_PATTERNS.
+    (re.compile(r"(?i)\b(?:secret|token|api[_-]?key|access[_-]?key|auth|bearer|passwd|password)\b\s*[:=]\s*['\"]?[A-Za-z0-9_\-/+=.]{8,}"), "SECRET_ASSIGNMENT"),
+]
+
+# Opt-in only: HERMES_REDACT_AGGRESSIVE=1 (or redact(..., aggressive=True)).
+# Redacts any bare 32-64 char hex blob — catches naked secrets pasted without
+# context, at the cost of eating git SHAs and file digests.
+AGGRESSIVE_PATTERNS = [
     (re.compile(r"\b[0-9a-fA-F]{32,64}\b"), "HEX_SECRET_CANDIDATE"),
-    (re.compile(r"(?i)password\s*[:=]\s*\S+"), "PASSWORD_ASSIGNMENT"),
 ]
 
 
-def redact(text: str) -> str:
+def redact(text: str, aggressive: bool = None) -> str:
     if not text:
         return text
+    if aggressive is None:
+        aggressive = os.environ.get("HERMES_REDACT_AGGRESSIVE", "") == "1"
     out = text
     for pattern, label in PATTERNS:
         out = pattern.sub(f"[REDACTED:{label}]", out)
+    if aggressive:
+        for pattern, label in AGGRESSIVE_PATTERNS:
+            out = pattern.sub(f"[REDACTED:{label}]", out)
     return out
 
 

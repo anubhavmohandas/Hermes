@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.hermes.dream.plist.template — launchd bridge for Dream consolidation.
+
+  This is the Phase 3B->3C bridge (gap analysis B3): dream.py only runs when
+  invoked, and real durable Cron is Phase 3C. Until then, launchd is the
+  scheduler. See docs/SCHEDULING.md for install steps.
+
+  Replace __HERMES_ROOT__ with the absolute repo path before loading
+  (docs/SCHEDULING.md has a one-liner that does it for you).
+
+  Safe by design: dream.py is lock-protected (.dream.lock), append-only, and
+  runs only Curator's consolidate step — it never approves or applies
+  proposals, so scheduling it violates no human-gate constraint.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.hermes.dream</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/env</string>
+        <string>python3</string>
+        <string>__HERMES_ROOT__/mnemos/dream.py</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>__HERMES_ROOT__/logs/dream_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HERMES_ROOT__/logs/dream_launchd.log</string>
+    <key>WorkingDirectory</key>
+    <string>__HERMES_ROOT__</string>
+</dict>
+</plist>

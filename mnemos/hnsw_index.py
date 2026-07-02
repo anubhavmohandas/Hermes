@@ -26,20 +26,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     import hnswlib
     import numpy as np
-    from embedder import embed, DIM  # embedder needs numpy too
+    import embedder
+    from embedder import embed  # embedder needs numpy too
     HNSW_AVAILABLE = True
     HNSW_IMPORT_ERROR = None
 except ImportError as _e:
     hnswlib = None
     np = None
+    embedder = None
     HNSW_AVAILABLE = False
     HNSW_IMPORT_ERROR = _e
-    DIM = 256  # keep the constant importable so callers don't need a second guard
 
 M = 16
 EF_CONSTRUCTION = 200
 EF_SEARCH = 50  # query-time recall/speed tradeoff, independent of build params
 SPACE = "cosine"
+# Blueprint's binary quantization (32x compression) is deliberately omitted:
+# at current corpus scale (<10k vectors) the full-precision index is a few MB
+# and quantization would only add a recall penalty. Revisit if the vault ever
+# holds >100k vectors.
 
 
 class MnemosHNSW:
@@ -55,7 +60,11 @@ class MnemosHNSW:
         self.meta_path = self.index_dir / "hnsw_meta.json"
         self.max_elements = max_elements
 
-        self.index = hnswlib.Index(space=SPACE, dim=DIM)
+        # dim comes from the active embedder backend (hash=256,
+        # ollama/nomic-embed-text=768) — see embedder.py.
+        self.backend = embedder.backend()
+        self.dim = embedder.embedding_dim()
+        self.index = hnswlib.Index(space=SPACE, dim=self.dim)
         self.records = {}  # str(label) -> {text, metadata, created_at}
         self.next_label = 0
 
@@ -66,9 +75,21 @@ class MnemosHNSW:
             self.index.set_ef(EF_SEARCH)
 
     def _load(self):
+        # Refuse to mix embedding spaces: an index built under one backend is
+        # meaningless queried under another, even when the dims happen to match.
+        meta = json.loads(self.meta_path.read_text())
+        params = meta.get("params", {})
+        saved_dim = params.get("dim")
+        saved_backend = params.get("embedder")
+        if (saved_dim is not None and saved_dim != self.dim) or \
+           (saved_backend is not None and saved_backend != self.backend):
+            raise RuntimeError(
+                f"index at {self.index_dir} was built with embedder="
+                f"{saved_backend or 'unknown'} dim={saved_dim}, but the active "
+                f"embedder is {self.backend} dim={self.dim}. Set HERMES_EMBEDDER "
+                f"to match, or rebuild the index from its source log.")
         self.index.load_index(str(self.bin_path), max_elements=self.max_elements)
         self.index.set_ef(EF_SEARCH)
-        meta = json.loads(self.meta_path.read_text())
         self.records = meta["records"]
         self.next_label = meta["next_label"]
 
@@ -77,7 +98,8 @@ class MnemosHNSW:
         self.meta_path.write_text(json.dumps({
             "records": self.records,
             "next_label": self.next_label,
-            "params": {"M": M, "efConstruction": EF_CONSTRUCTION, "space": SPACE, "dim": DIM},
+            "params": {"M": M, "efConstruction": EF_CONSTRUCTION, "space": SPACE,
+                       "dim": self.dim, "embedder": self.backend},
         }, indent=2))
 
     def insert(self, text: str, metadata: dict = None):

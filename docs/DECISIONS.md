@@ -48,6 +48,35 @@ behavior (hard block, correctly labeled now) is what's live.
 
 ---
 
+## D2 — Which blueprint is authoritative: v3 SVG (10 modules) or Phase 3 docx (7 modules)?
+
+**Found:** 2026-07-02 gap analysis. Two vision documents coexist:
+`hermes_blueprint_v3.svg` (May — 10 modules incl. Browser, Agents,
+Autonomous Loop, Planning, Code/TDD) and `HERMES_Phase3_Blueprint.docx`
+(July — deliberately narrowed/renamed to 7: Browser→Fetcher,
+Agents→Delegation, Token-Monitor+Caveman+Verification→`meta/`). The code
+follows Phase 3. Measured against the SVG, ~40% of the module surface
+exists; measured against the docx, 3A+3B are done and 3C+3D remain. Carrying
+both is why the architecture doc needed a whole "Blueprint Reconciliation"
+section, and every future audit will re-litigate the same discrepancy.
+
+**Option A — declare the Phase 3 docx authoritative.** The SVG becomes a
+historical artifact (move it to an `archive/` dir or delete it). Roadmap
+claims are then measured against 7 modules, and "Phase 3C" is the single
+name for what's missing.
+
+**Option B — keep the SVG as the north star.** Then the docx is a
+phase-plan, not the vision, and the module map should track all 10 modules'
+status explicitly (incl. Planning and Code/TDD, which currently appear in no
+plan at all).
+
+**Status: needs the human's call.** This is a scope decision, not a code
+decision — nothing in the repo can resolve it. Until decided, code and docs
+in this repo measure themselves against the Phase 3 docx (the narrower,
+newer document), and claims against the SVG should not be made.
+
+---
+
 *Add new entries above this line as they come up. Don't resolve a D-item by
 editing this file alone — the code has to change too, and the entry should
 note the commit/date it was closed.*

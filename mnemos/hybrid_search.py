@@ -11,11 +11,13 @@ RAM-first pipeline — three confidence tiers, confidence-stratified resolution.
   Tier B — Regex fallback: structured patterns (CVE IDs, file paths,
            function-like identifiers) — scans raw message content directly,
            independent of FTS5 tokenization quirks.
-  Tier C — Semantic HNSW: mnemos/hnsw_index.py. NOTE: backed by the hashing-
-           trick embedder (embedder.py), not a real semantic model — treat
-           Tier C hits as "lexical-overlap adjacent," not "conceptually
-           similar." Confidence is capped accordingly until a real embedding
-           model is wired in.
+  Tier C — Semantic HNSW: mnemos/hnsw_index.py. Backend depends on
+           HERMES_EMBEDDER (see embedder.py): "hash" (default) is the
+           hashing-trick vectorizer — treat those hits as "lexical-overlap
+           adjacent," NOT "conceptually similar"; "ollama" is a real
+           embedding model (nomic-embed-text). Tier C confidence stays LOW
+           under both until the ollama backend has earned trust on real
+           recall data.
 
 Confidence-stratified resolution: a concrete, inspectable rule set — not a
 vibe. See `resolve_confidence()`.
@@ -28,6 +30,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import store
 from hnsw_index import MnemosHNSW, HNSW_AVAILABLE, HNSW_IMPORT_ERROR
+
+
+def hnsw_backend() -> str:
+    """Active embedder backend name, without importing embedder when its
+    numpy dep is missing (embedder is None inside hnsw_index's guard then)."""
+    import hnsw_index as _hi
+    return _hi.embedder.backend() if _hi.embedder is not None else "hash"
 
 STRUCTURED_PATTERNS = [
     ("cve_id", re.compile(r"CVE-\d{4}-\d+", re.IGNORECASE)),
@@ -75,25 +84,40 @@ def regex_scan_messages(patterns, db_path: Path = store.DEFAULT_DB_PATH, limit: 
     return deduped[:limit]
 
 
-def resolve_confidence(tier_a, tier_b, tier_c):
+def _distinct_query_words_in(content: str, query: str) -> int:
+    """How many distinct query words (len >= 3) appear in content. This is
+    the 'is the TOP hit clearly about the query' proxy — sqlite's bm25 rank
+    isn't exposed as a raw score through this driver."""
+    content_l = (content or "").lower()
+    words = {w for w in re.findall(r"[a-z0-9]{3,}", query.lower())}
+    return sum(1 for w in words if w in content_l)
+
+
+def resolve_confidence(query, tier_a, tier_b, tier_c):
     """
     Concrete rules, in priority order:
       1. Tier B (exact structured match) present -> HIGH, return Tier B first.
-      2. Tier A present AND top FTS5 hit's content contains >=2 distinct
-         query-relevant substrings -> HIGH (heuristic proxy for "this is
-         clearly the right document," since sqlite's bm25 rank isn't exposed
-         as a raw score through this driver).
-      3. Tier A present but only one weak hit -> MEDIUM.
-      4. Only Tier C (semantic/hashing) hits, best similarity >= 0.45 -> LOW
+      2. Tier A present AND the TOP FTS5 hit's content contains >=2 distinct
+         query words -> HIGH. Measured on the top hit's quality, NOT on how
+         many rows came back — two weak rows are not more trustworthy than
+         one strong one (audited 2026-07-02, C3: the old len(tier_a) >= 2
+         check measured the wrong thing).
+      3. Tier A present but top hit shares <2 distinct query words -> MEDIUM.
+      4. Only Tier C hits, best similarity >= 0.45 -> LOW
          (flag explicitly: lexical-overlap embedder, not true semantic).
       5. Nothing above threshold -> NONE, say so, don't fabricate a hit.
     """
     if tier_b:
         return "HIGH", "tier_b_regex", "exact structured pattern match (CVE id / path / hash)"
     if tier_a:
-        return ("HIGH" if len(tier_a) >= 2 else "MEDIUM"), "tier_a_bm25", "FTS5 lexical match"
+        strong = _distinct_query_words_in(tier_a[0].get("content", ""), query) >= 2
+        return ("HIGH" if strong else "MEDIUM"), "tier_a_bm25", "FTS5 lexical match"
     if tier_c and tier_c[0]["similarity"] >= 0.45:
-        return "LOW", "tier_c_semantic", "hashing-trick lexical-overlap embedder — not true semantic similarity, verify before relying on it"
+        if HNSW_AVAILABLE and hnsw_backend() == "ollama":
+            reason_c = "semantic embedding match (ollama backend) — conceptually similar, still verify before relying on it"
+        else:
+            reason_c = "hashing-trick lexical-overlap embedder — not true semantic similarity, verify before relying on it"
+        return "LOW", "tier_c_semantic", reason_c
     return "NONE", None, "no hit cleared the confidence threshold in any tier"
 
 
@@ -127,7 +151,7 @@ def hybrid_search(query: str, db_path: Path = store.DEFAULT_DB_PATH,
         bank = MnemosHNSW(hnsw_dir)
         tier_c = bank.query(query, k=k)
 
-    confidence, resolved_tier, reason = resolve_confidence(tier_a, tier_b, tier_c)
+    confidence, resolved_tier, reason = resolve_confidence(query, tier_a, tier_b, tier_c)
 
     return {
         "query": query,

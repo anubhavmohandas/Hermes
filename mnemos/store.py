@@ -10,6 +10,7 @@ This is Phase 3A scope only: durable session storage + lexical (FTS5) search.
 HNSW semantic search and 3-tier hybrid retrieval land in Phase 3B (Mnemos v2).
 """
 import random
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -19,6 +20,41 @@ MAX_RETRIES = 15
 BACKOFF_MIN_MS = 20
 BACKOFF_MAX_MS = 150
 CHECKPOINT_EVERY_N_WRITES = 50
+
+# The 4 memory types from HERMES_Phase3_Blueprint.docx §4.1. Classification is
+# deterministic keyword rules — same philosophy as brain.py's sensitivity
+# check: hard-coded, inspectable, not LLM-based.
+MEMORY_TYPES = ("user", "feedback", "project", "reference")
+
+_REFERENCE_RE = re.compile(
+    r"https?://|www\.|(?:[\w\-./]+/)+[\w\-.]+\.\w{1,6}|\bsee (?:the )?docs?\b|\bdashboard\b|\bticket\b",
+    re.IGNORECASE)
+_FEEDBACK_RE = re.compile(
+    r"\bdon'?t\b|\bnever\b|\balways\b|\binstead of\b|\byou should(?:n'?t)?\b|\bstop (?:doing|using)\b|"
+    r"\bprefer(?:red)?\b|\bthat was wrong\b|\bnext time\b",
+    re.IGNORECASE)
+_USER_RE = re.compile(
+    r"\bi am\b|\bi'?m a\b|\bmy (?:role|job|name|email|machine|setup|workflow)\b|\bi work\b|\bi use\b|\bi like\b",
+    re.IGNORECASE)
+
+
+def classify_memory_type(content: str, role: str = "user") -> str:
+    """Deterministic, priority-ordered:
+      feedback  — corrections/guidance about how to work (checked first: a
+                  correction often ALSO contains a path or 'I', and the
+                  guidance is the more useful thing to retain)
+      user      — facts about who the user is
+      reference — pointers to external resources (URLs, paths, tickets)
+      project   — everything else (default: ongoing work context)
+    """
+    text = content or ""
+    if _FEEDBACK_RE.search(text):
+        return "feedback"
+    if role == "user" and _USER_RE.search(text):
+        return "user"
+    if _REFERENCE_RE.search(text):
+        return "reference"
+    return "project"
 
 _write_counter = {"n": 0}
 
@@ -57,7 +93,45 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+def vault_canary(db_path: Path = DEFAULT_DB_PATH):
+    """Write+read+delete one row to prove the vault filesystem actually
+    supports SQLite writes. The WAL->DELETE fallback in _connect() does NOT
+    cover this failure mode: on FUSE/network/synced-folder mounts (Dropbox,
+    iCloud, OneDrive, Cowork mounts) the 'disk I/O error' hits the write
+    itself, not the WAL pragma — reproduced live 2026-07-02 (C5). Better to
+    refuse the vault loudly at init than discover it mid-session with every
+    write dying silently. Returns (ok: bool, reason: str)."""
+    try:
+        conn = _connect(db_path)
+        try:
+            conn.execute("CREATE TABLE IF NOT EXISTS _canary (v TEXT)")
+            conn.execute("INSERT INTO _canary (v) VALUES ('ok')")
+            conn.commit()
+            row = conn.execute("SELECT v FROM _canary LIMIT 1").fetchone()
+            conn.execute("DELETE FROM _canary")
+            conn.commit()
+        finally:
+            conn.close()
+        if not row or row[0] != "ok":
+            return False, f"canary read-back failed on {db_path}"
+        return True, "vault writable"
+    except sqlite3.OperationalError as e:
+        return False, (f"vault at {db_path} failed the write canary ({e}) — this is the "
+                       f"known non-local-filesystem failure (network mount / FUSE / "
+                       f"Dropbox/iCloud/OneDrive-synced folder). Move VAULT_PATH to a "
+                       f"real local disk.")
+
+
+def _migrate_memory_type(conn):
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
+    if cols and "memory_type" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN memory_type TEXT NOT NULL DEFAULT 'project'")
+
+
 def init_db(db_path: Path = DEFAULT_DB_PATH):
+    ok, reason = vault_canary(db_path)
+    if not ok:
+        raise RuntimeError(f"mnemos/store.py: REFUSING vault — {reason}")
     conn = _connect(db_path)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS messages (
@@ -66,9 +140,11 @@ def init_db(db_path: Path = DEFAULT_DB_PATH):
             role TEXT NOT NULL,
             content TEXT NOT NULL,
             metadata TEXT DEFAULT '{}',
+            memory_type TEXT NOT NULL DEFAULT 'project',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
     """)
+    _migrate_memory_type(conn)  # pre-3B databases lack the column
     # FTS5 with trigram tokenizer — substring search, handles CJK.
     conn.execute("""
         CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
@@ -102,11 +178,16 @@ def _execute_with_retry(db_path: Path, fn):
 
 
 def write_message(session_id: str, role: str, content: str, metadata: str = "{}",
-                   db_path: Path = DEFAULT_DB_PATH):
+                   db_path: Path = DEFAULT_DB_PATH, memory_type: str = None):
+    if memory_type is None:
+        memory_type = classify_memory_type(content, role)
+    elif memory_type not in MEMORY_TYPES:
+        raise ValueError(f"memory_type must be one of {MEMORY_TYPES}, got {memory_type!r}")
+
     def _write(conn):
         cur = conn.execute(
-            "INSERT INTO messages (session_id, role, content, metadata) VALUES (?, ?, ?, ?)",
-            (session_id, role, content, metadata),
+            "INSERT INTO messages (session_id, role, content, metadata, memory_type) VALUES (?, ?, ?, ?, ?)",
+            (session_id, role, content, metadata, memory_type),
         )
         conn.execute(
             "INSERT INTO messages_fts (rowid, content, session_id) VALUES (?, ?, ?)",
@@ -140,10 +221,15 @@ def search_messages(query: str, limit: int = 10, db_path: Path = DEFAULT_DB_PATH
     conn = _connect(db_path)
     try:
         # FTS5 trigram tokenizer requires quoting the match string.
+        # Ranking note (audited 2026-07-02, C7): the blueprint specifies BM25
+        # k1=1.5, b=0.75; SQLite's built-in bm25() hard-codes k1=1.2, b=0.75
+        # and exposes only per-column weights — the spec'd k1 is not
+        # implementable without a custom rank function. Deliberate deviation,
+        # negligible at this corpus size.
         safe_query = query.replace('"', '""')
         rows = conn.execute(
             """
-            SELECT m.id, m.session_id, m.role, m.content, m.created_at
+            SELECT m.id, m.session_id, m.role, m.content, m.created_at, m.memory_type
             FROM messages_fts f
             JOIN messages m ON m.id = f.rowid
             WHERE messages_fts MATCH ?
@@ -153,7 +239,8 @@ def search_messages(query: str, limit: int = 10, db_path: Path = DEFAULT_DB_PATH
             (f'"{safe_query}"', limit),
         ).fetchall()
         return [
-            {"id": r[0], "session_id": r[1], "role": r[2], "content": r[3], "created_at": r[4]}
+            {"id": r[0], "session_id": r[1], "role": r[2], "content": r[3],
+             "created_at": r[4], "memory_type": r[5]}
             for r in rows
         ]
     finally:
@@ -164,10 +251,11 @@ def get_session(session_id: str, db_path: Path = DEFAULT_DB_PATH):
     conn = _connect(db_path)
     try:
         rows = conn.execute(
-            "SELECT id, role, content, created_at FROM messages WHERE session_id = ? ORDER BY id",
+            "SELECT id, role, content, created_at, memory_type FROM messages WHERE session_id = ? ORDER BY id",
             (session_id,),
         ).fetchall()
-        return [{"id": r[0], "role": r[1], "content": r[2], "created_at": r[3]} for r in rows]
+        return [{"id": r[0], "role": r[1], "content": r[2], "created_at": r[3], "memory_type": r[4]}
+                for r in rows]
     finally:
         conn.close()
 
@@ -177,16 +265,21 @@ if __name__ == "__main__":
     import json as _json
 
     if len(sys.argv) < 2:
-        print("usage: store.py init|write|search|get ...", file=sys.stderr)
+        print("usage: store.py init|canary|write|search|get ...", file=sys.stderr)
         sys.exit(2)
 
     cmd = sys.argv[1]
     if cmd == "init":
         path = init_db()
         print(f"initialized: {path}")
+    elif cmd == "canary":
+        ok, reason = vault_canary()
+        print(reason)
+        sys.exit(0 if ok else 1)
     elif cmd == "write":
-        # write.py write <session_id> <role> <content>
-        msg_id = write_message(sys.argv[2], sys.argv[3], sys.argv[4])
+        # store.py write <session_id> <role> <content> [memory_type]
+        mtype = sys.argv[5] if len(sys.argv) > 5 else None
+        msg_id = write_message(sys.argv[2], sys.argv[3], sys.argv[4], memory_type=mtype)
         print(f"wrote message id={msg_id}")
     elif cmd == "search":
         results = search_messages(sys.argv[2])
