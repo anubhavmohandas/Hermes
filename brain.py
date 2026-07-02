@@ -74,14 +74,24 @@ def is_bulk_task(task_description: str) -> bool:
     return bool(_BULK_RE.search(task_description))
 
 
-def get_tier(is_sensitive: bool, task_type: str = "default") -> int:
+def get_tier(is_sensitive: bool, task_type: str = "default", via: str = "api") -> int:
     """
-    Sensitive        -> Tier 1, no exceptions.
-    Bulk/offline/cost -> Tier 2, IF not sensitive.
-    Everything else   -> Tier 1 (default-safe).
+    Sensitive + via=local -> Tier 2. Local Ollama IS permitted for sensitive
+        data per HERMES_Phase3_Blueprint.docx section 6.2 ("CVEs, recon
+        output, pentest notes -> Tier 1 (Claude API) or Tier 2 (local
+        Ollama) ONLY") and the v1 blueprint's Apollo Model Routing table.
+        Audited 2026-07-02 (H2) — original version forced sensitive tasks to
+        Tier 1 unconditionally, which made it IMPOSSIBLE to ever run a
+        CVE/recon/pentest task offline on local hardware, contradicting both
+        blueprints' explicit intent. Tier 3 remains categorically
+        unreachable for sensitive data regardless of `via` — that
+        restriction is correct and unchanged.
+    Sensitive + via=api (default) -> Tier 1, no exceptions.
+    Non-sensitive + task_type=bulk -> Tier 2.
+    Everything else -> Tier 1 (default-safe).
     """
     if is_sensitive:
-        return 1
+        return 2 if via == "local" else 1
     if task_type == "bulk":
         return 2
     return 1
@@ -170,7 +180,7 @@ def debug_log(msg: str):
 def _cmd_check(args):
     is_sensitive = check_sensitivity(args.task)
     task_type = "bulk" if is_bulk_task(args.task) else "default"
-    tier = get_tier(is_sensitive, task_type)
+    tier = get_tier(is_sensitive, task_type, via=args.via)
     allowed, reason = check_model_allowed(tier, args.model, args.via) if args.model else (True, "no model specified — tier computed only")
 
     result = {

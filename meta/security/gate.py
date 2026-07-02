@@ -51,7 +51,14 @@ def run_gate(tool_name: str, tool_input: dict):
         if verdict == "block":
             return False, "approval", reason
         if verdict == "approval":
-            return False, "approval", reason + " (human approval required — not auto-denied, but not auto-allowed either)"
+            # Audited 2026-07-02 (M1): this DOES hard-block today. PreToolUse
+            # hooks are non-interactive — allow/deny only, no mechanism to
+            # pause and ask a human mid-call. Fail-safe (deny) is the
+            # correct default until a real interactive-approval path exists.
+            # See docs/DECISIONS.md for the deferred design (Apollo would
+            # need to ask via AskUserQuestion BEFORE invoking Bash, then
+            # pass an approval token this hook can check) — not built yet.
+            return False, "approval", reason + " — BLOCKED by default (no interactive approval path exists yet; see docs/DECISIONS.md)"
 
     if tool_name == "skillinstall":
         path = tool_input.get("path", "")

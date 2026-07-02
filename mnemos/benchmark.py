@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from hnsw_index import MnemosHNSW
+from hnsw_index import MnemosHNSW, HNSW_AVAILABLE, HNSW_IMPORT_ERROR
 
 # (doc_id, text) — a small labeled corpus across 5 topic clusters
 CORPUS = [
@@ -89,4 +89,9 @@ def run_benchmark(index_dir: Path = None):
 
 
 if __name__ == "__main__":
+    if not HNSW_AVAILABLE:
+        print(f"benchmark.py: {HNSW_IMPORT_ERROR} — pip install -r requirements.txt "
+              f"(the benchmark exercises the HNSW index itself; there is no degraded mode)",
+              file=sys.stderr)
+        sys.exit(1)
     print(json.dumps(run_benchmark(), indent=2))

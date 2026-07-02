@@ -2,9 +2,12 @@
 """
 approval.py — Layer 5/7: dangerous command gate.
 Classifies shell commands as safe / needs-human-approval / block.
-This module NEVER auto-approves — it only classifies. The actual approval
-prompt is surfaced by Apollo to the human. Reimplemented fresh from pattern
-(hermes-agent P16). No source copied.
+This module NEVER auto-approves — it only classifies. As of 2026-07-02,
+the "needs-human-approval" verdict is enforced as a hard block at the hook
+layer (gate.py) — there is no live interactive prompt path yet. See
+docs/DECISIONS.md (D1) for why, and what Option B (a real interactive path)
+would require. Reimplemented fresh from pattern (hermes-agent P16). No
+source copied.
 """
 import re
 import sys

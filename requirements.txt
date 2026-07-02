@@ -1,0 +1,11 @@
+# HERMES third-party dependencies.
+#
+# These two are needed ONLY by Tier C semantic retrieval (mnemos/hnsw_index.py,
+# used by mnemos/hybrid_search.py, mnemos/benchmark.py, reasoningbank/bank.py).
+# Everything else in HERMES is stdlib-only by design.
+#
+# If they're missing, Tier C degrades to Tier A (FTS5) / Tier B (regex) lexical
+# retrieval with a stderr warning (see HNSW_AVAILABLE in mnemos/hnsw_index.py)
+# instead of crashing at import.
+hnswlib>=0.8.0
+numpy>=1.26

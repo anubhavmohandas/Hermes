@@ -9,7 +9,8 @@
     ]
   },
   "platform": [
-    "cli"
+    "cli",
+    "cowork"
   ],
   "author": "Anubhav Mohandas",
   "license": "private",
@@ -37,8 +38,11 @@
   "security_constraints": {
     "excluded_apis_via_api": [
       "kimi",
+      "moonshot",
       "glm",
+      "zhipu",
       "mimo",
+      "xiaomi",
       "minimax",
       "deepseek"
     ],

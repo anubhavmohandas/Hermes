@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mnemos"))
-from hnsw_index import MnemosHNSW
+from hnsw_index import MnemosHNSW, HNSW_AVAILABLE, HNSW_IMPORT_ERROR
 
 BANK_DIR = Path(__file__).resolve().parent
 RAW_LOG = BANK_DIR / "task_log.jsonl"
@@ -57,10 +57,18 @@ def log_task(task_description: str, approach: str, outcome: str, reward: float,
     with open(RAW_LOG, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
-    bank = MnemosHNSW(INDEX_DIR)
-    label = bank.insert(task_description, metadata=entry)
-    bank.save()
-    entry["hnsw_label"] = label
+    if HNSW_AVAILABLE:
+        bank = MnemosHNSW(INDEX_DIR)
+        label = bank.insert(task_description, metadata=entry)
+        bank.save()
+        entry["hnsw_label"] = label
+    else:
+        # JSONL is the durable audit trail; the index is rebuildable from it
+        # later, so a missing dep loses retrieval, never the record itself.
+        print(f"bank.py: hnswlib/numpy missing ({HNSW_IMPORT_ERROR}) — task logged to "
+              f"JSONL only, not indexed; pip install -r requirements.txt, then rebuild "
+              f"the index from task_log.jsonl", file=sys.stderr)
+        entry["hnsw_label"] = None
     return entry
 
 
@@ -69,6 +77,10 @@ def retrieve_top_k(task_description: str, k: int = 5, min_reward: float = REWARD
     task_description. Only returns entries with reward > min_reward — this
     is the 'don't inject mediocre past attempts as if they were good
     examples' guardrail from the pattern spec."""
+    if not HNSW_AVAILABLE:
+        print(f"bank.py: retrieval unavailable without hnswlib/numpy ({HNSW_IMPORT_ERROR}) "
+              f"— returning no past approaches", file=sys.stderr)
+        return []
     if not (INDEX_DIR / "hnsw.bin").exists():
         return []
     bank = MnemosHNSW(INDEX_DIR)

@@ -12,15 +12,29 @@ or metadata, so this wraps it with a JSON sidecar mapping label -> record
 {text, metadata, created_at}, persisted next to the .bin index file.
 """
 import json
+import sys
 import time
 from pathlib import Path
 
-import hnswlib
-import numpy as np
-
-import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from embedder import embed, DIM
+
+# hnswlib + numpy are Tier C's only third-party deps (see requirements.txt).
+# A missing dep must degrade Tier C, not crash every importer — the same
+# graceful-degradation contract store.py already honors for WAL mode.
+# Importers (hybrid_search.py, reasoningbank/bank.py) check HNSW_AVAILABLE
+# and fall back to Tier A/B lexical retrieval when it's False.
+try:
+    import hnswlib
+    import numpy as np
+    from embedder import embed, DIM  # embedder needs numpy too
+    HNSW_AVAILABLE = True
+    HNSW_IMPORT_ERROR = None
+except ImportError as _e:
+    hnswlib = None
+    np = None
+    HNSW_AVAILABLE = False
+    HNSW_IMPORT_ERROR = _e
+    DIM = 256  # keep the constant importable so callers don't need a second guard
 
 M = 16
 EF_CONSTRUCTION = 200
@@ -30,6 +44,11 @@ SPACE = "cosine"
 
 class MnemosHNSW:
     def __init__(self, index_dir: Path, max_elements: int = 10_000):
+        if not HNSW_AVAILABLE:
+            raise RuntimeError(
+                f"Tier C semantic index unavailable: {HNSW_IMPORT_ERROR}. "
+                f"Install with: pip install -r requirements.txt"
+            )
         self.index_dir = Path(index_dir)
         self.index_dir.mkdir(parents=True, exist_ok=True)
         self.bin_path = self.index_dir / "hnsw.bin"
@@ -95,6 +114,9 @@ class MnemosHNSW:
 
 if __name__ == "__main__":
     import sys as _sys
+    if not HNSW_AVAILABLE:
+        print(f"hnsw_index.py: {HNSW_IMPORT_ERROR} — pip install -r requirements.txt", file=_sys.stderr)
+        _sys.exit(1)
     if len(_sys.argv) < 3:
         print("usage: hnsw_index.py <index_dir> insert <text> | query <text> [k]", file=_sys.stderr)
         _sys.exit(2)

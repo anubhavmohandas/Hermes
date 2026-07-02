@@ -9,7 +9,14 @@ import re
 import sys
 
 PATTERNS = [
-    (re.compile(r"sk-[a-zA-Z0-9]{20,}"), "ANTHROPIC/OPENAI_KEY"),
+    # Anthropic keys are shaped sk-ant-api03-<random>-<random> — hyphens
+    # INSIDE the key body, not just as a prefix separator. A plain
+    # [a-zA-Z0-9]{20,} class stops at the first embedded hyphen and never
+    # reaches the 20-char floor, so it silently fails to match real keys.
+    # Audited 2026-07-02 — confirmed live: real key passed through in cleartext.
+    # underscore included: key alphabets commonly use base64url-ish charsets (-_)
+    (re.compile(r"sk-ant-[a-zA-Z0-9_-]{20,}"), "ANTHROPIC_KEY"),
+    (re.compile(r"sk-[a-zA-Z0-9_-]{20,}"), "ANTHROPIC/OPENAI_KEY"),
     (re.compile(r"AKIA[0-9A-Z]{16}"), "AWS_ACCESS_KEY"),
     (re.compile(r"ghp_[a-zA-Z0-9]{36}"), "GITHUB_TOKEN"),
     (re.compile(r"gho_[a-zA-Z0-9]{36}"), "GITHUB_OAUTH_TOKEN"),

@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import store
-from hnsw_index import MnemosHNSW
+from hnsw_index import MnemosHNSW, HNSW_AVAILABLE, HNSW_IMPORT_ERROR
 
 STRUCTURED_PATTERNS = [
     ("cve_id", re.compile(r"CVE-\d{4}-\d+", re.IGNORECASE)),
@@ -119,7 +119,11 @@ def hybrid_search(query: str, db_path: Path = store.DEFAULT_DB_PATH,
     tier_b = regex_scan_messages(patterns, db_path=db_path, limit=k)
 
     tier_c = []
-    if Path(hnsw_dir / "hnsw.bin").exists():
+    if not HNSW_AVAILABLE:
+        print(f"hybrid_search: Tier C (semantic HNSW) unavailable ({HNSW_IMPORT_ERROR}) "
+              f"— degrading to Tier A/B; pip install -r requirements.txt to restore",
+              file=sys.stderr)
+    elif Path(hnsw_dir / "hnsw.bin").exists():
         bank = MnemosHNSW(hnsw_dir)
         tier_c = bank.query(query, k=k)
 
