@@ -45,9 +45,14 @@ LANG_BY_SUFFIX = {".py": "python", ".ts": "typescript", ".tsx": "tsx",
 # The six reviewer lenses — v1's "6 reviewer agents", as dispatchable prompts.
 REVIEWERS = {
     "security": "Review the packed codebase below for SECURITY issues only: injection, "
-                "path traversal, SSRF, secrets in code, unsafe deserialization, missing "
-                "input validation at trust boundaries. Report file:line, severity, and a "
-                "concrete fix per finding. No style comments.",
+                "path traversal, SSRF (host/protocol-controlled), secrets in code, unsafe "
+                "deserialization, missing authz at trust boundaries. Trace untrusted "
+                "input → dangerous sink. Report file:line, severity, data flow, and a fix. "
+                "Apply the /security-review discipline (commands/security-review.md): drop "
+                "any finding below 8/10 confidence and honor the 14 hard exclusions (no "
+                "DoS, no rate-limiting, no outdated-deps, no memory-safety in memory-safe "
+                "langs, no path-only SSRF, no test-file-only findings, etc.). Better silent "
+                "than noisy. No style comments.",
     "performance": "Review the packed codebase below for PERFORMANCE issues only: "
                    "quadratic scans, repeated I/O in loops, unbounded memory growth, "
                    "missing caching where results repeat. Report file:line, expected "

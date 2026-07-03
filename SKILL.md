@@ -130,7 +130,7 @@ Usage:
 
 **ReasoningBank** (approach memory): `reasoningbank/bank.py` stores `{task, approach, outcome, reward, success, critique, tokens, latency}` per completed task in its own HNSW index, and returns the top-scoring past approaches (reward > 0.8) for a similar new task. This is what §2 step 3/step 3-after wire into the per-request procedure.
 
-**Dream** (`mnemos/dream.py`): on-demand consolidation pass (runs Curator's consolidate step, lock-protected against concurrent runs via `.dream.lock`). Not scheduled automatically yet — Phase 3C's Cron is what will actually trigger this unattended. Bridge available now: a launchd template at `hooks/com.hermes.dream.plist.template` (install steps in `docs/SCHEDULING.md`) runs it daily at 03:30. Scheduling Dream violates no human-gate constraint — it consolidates only; it never approves or applies anything.
+**Dream** (`mnemos/dream.py`): consolidation pass (runs Curator's consolidate step, lock-protected against concurrent runs via `.dream.lock`), now schedulable via Cron. A **timing gate** (pattern #1426, autoDream) stops a nightly cron run from re-consolidating identical data: it runs only if `interval_hours` have elapsed AND ≥`min_new_entries` new reflexion entries accrued since the last run (cheapest-check-first, config in `mnemos/dream/dream_config.json`). A scheduled run respects the gate; a manual `python3 mnemos/dream.py --force` bypasses it. Bridge: launchd template at `hooks/com.hermes.dream.plist.template` runs it daily at 03:30. Scheduling Dream violates no human-gate constraint — it consolidates only; it never approves or applies anything.
 
 ---
 

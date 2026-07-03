@@ -46,6 +46,7 @@ import bank
 import consolidate
 import propose
 import approve
+import dream as mnemos_dream
 import ollama_client
 
 # Phase 3C/3D/Stage-5 modules
@@ -914,6 +915,96 @@ class TestActiveModulesProvablyRun(HermesTestCase):
                 f"dep is not importable ({hnsw_index.HNSW_IMPORT_ERROR}). Either "
                 f"`pip install -r requirements.txt` or move them to modules.offline — "
                 f"'active' must mean 'provably runs'.")
+
+
+# ---------------------------------------------------------------------------
+# Dream timing gate (#1426 autoDream) — cheapest-first, interval + new-entries
+# ---------------------------------------------------------------------------
+class TestDreamTimingGate(HermesTestCase):
+    def setUp(self):
+        d = self.tmpdir()
+        (d / "dream").mkdir()
+        self.cfg = d / "dream" / "dream_config.json"
+        self.log = d / "dream" / "dream_log.jsonl"
+        self.raw = d / "reflexion_seed.json"
+        self.cfg.write_text(json.dumps({"interval_hours": 24, "stale_lock_minutes": 30,
+                                        "min_reward_for_injection": 0.8, "min_new_entries": 1}))
+        self.patch_attrs(mnemos_dream, DREAM_DIR=d / "dream", CONFIG_PATH=self.cfg,
+                         DREAM_LOG=self.log, LOCK_PATH=d / "dream" / ".dream.lock",
+                         RAW_REFLEXION_LOG=self.raw)
+
+    def _log_run(self, iso_ts, raw_entries_read):
+        self.log.write_text(json.dumps({
+            "timestamp": iso_ts,
+            "curator_consolidation": {"raw_entries_read": raw_entries_read}}) + "\n")
+
+    def test_first_run_always_allowed(self):
+        ok, reason = mnemos_dream.should_run()
+        self.assertTrue(ok)
+        self.assertIn("first run", reason)
+
+    def test_blocks_within_interval(self):
+        import time as _t
+        recent = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(_t.time() - 3600))  # 1h ago
+        self._log_run(recent, 4)
+        self.raw.write_text("\n".join(['{"x":1}'] * 10) + "\n")  # plenty new, but too soon
+        ok, reason = mnemos_dream.should_run()
+        self.assertFalse(ok)
+        self.assertIn("interval_hours", reason)
+
+    def test_blocks_when_no_new_entries(self):
+        import time as _t
+        old = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(_t.time() - 48 * 3600))  # 2 days ago
+        self._log_run(old, 5)
+        self.raw.write_text("\n".join(['{"x":1}'] * 5) + "\n")  # 5 - 5 = 0 new
+        ok, reason = mnemos_dream.should_run()
+        self.assertFalse(ok)
+        self.assertIn("new reflexion entries", reason)
+
+    def test_allows_when_interval_and_new_entries_pass(self):
+        import time as _t
+        old = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(_t.time() - 48 * 3600))
+        self._log_run(old, 5)
+        self.raw.write_text("\n".join(['{"x":1}'] * 8) + "\n")  # 3 new
+        ok, reason = mnemos_dream.should_run()
+        self.assertTrue(ok)
+        self.assertIn("consolidating", reason)
+
+    def test_scheduled_run_respects_gate_force_bypasses(self):
+        import time as _t
+        recent = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(_t.time() - 3600))
+        self._log_run(recent, 4)
+        self.raw.write_text('{"x":1}\n')
+        # Scheduled (force=False) must skip on the timing gate BEFORE touching the lock.
+        out = mnemos_dream.run_consolidation(force=False)
+        self.assertEqual(out["status"], "skipped")
+        self.assertEqual(out.get("gate"), "timing")
+
+
+# ---------------------------------------------------------------------------
+# /security-review command contract (#1433 — 3-phase + 14 exclusions + conf 8)
+# ---------------------------------------------------------------------------
+class TestSecurityReviewCommand(HermesTestCase):
+    def test_command_exists_with_readonly_tools_and_full_contract(self):
+        path = ROOT / "commands" / "security-review.md"
+        self.assertTrue(path.exists(), "commands/security-review.md missing (#1433)")
+        text = path.read_text()
+        # read-only: no Write/Edit in allowed-tools frontmatter
+        fm = text.split("---")[1]
+        self.assertIn("allowed-tools:", fm)
+        self.assertNotIn("Write", fm)
+        self.assertNotIn("Edit", fm)
+        # 3 phases present
+        for phase in ("Phase 1", "Phase 2", "Phase 3"):
+            self.assertIn(phase, text)
+        # all 14 exclusions present (numbered 1..14)
+        for n in range(1, 15):
+            self.assertIn(f"{n}.", text, f"exclusion {n} missing")
+        # confidence threshold adopted verbatim
+        self.assertIn("8", text)
+        self.assertRegex(text.lower(), r"confidence")
+        # honors the human-gate invariant (reports, never edits)
+        self.assertIn("Invariant #3", text)
 
 
 # ---------------------------------------------------------------------------

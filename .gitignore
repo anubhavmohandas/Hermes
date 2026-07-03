@@ -80,6 +80,7 @@ desktop.ini
 
 cron/cron.db*
 cron/.tick.lock
+delegation/agenda/
 logs/.approved/
 meta/upstreams.json
 integrations/db/*.sqlite*
