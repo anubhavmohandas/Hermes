@@ -9,7 +9,19 @@ user-invocable: false
 
 Called by Apollo, not directly by the user.
 
-## What this does in Phase 3A
+**Where the format skills live:** installed at `~/.claude/skills/{docx,pdf,
+xlsx,pptx}` (from the Anthropic skills repo, installed 2026-07-03). If one
+is missing from a fresh machine, say so and degrade to a markdown deliverable
+with the content intact — never fake the binary format (Invariant #5).
+Reinstall source: `Documents/Claude/Skills/skills-main-anthropic.zip`.
+
+**Intake:** if the request is "make me a report/presentation/spreadsheet
+FROM SCRATCH" (content doesn't exist yet), it belongs to `skills/create` —
+Apollo routes it there and the intake in `prompts/{report,presentation,
+spreadsheet,pdf}.md` runs first. This sub-skill handles the format step:
+content exists (or arrives from the create flow), produce the file.
+
+## What this does
 
 1. Accept a document request from Apollo, already tier-checked.
 2. Detect the target format from the request:
@@ -29,9 +41,9 @@ Called by Apollo, not directly by the user.
 ## Ground rule
 
 This sub-skill is a router, not a document engine. It does not reimplement
-docx/pdf/xlsx/pptx generation — those already exist as their own skills.
-Its only job is: detect format correctly, hand off, verify the output
-landed, log it.
+docx/pdf/xlsx/pptx generation — those exist as installed skills (paths
+above). Its only job is: detect format correctly, hand off, verify the
+output landed, log it.
 
 ## Extension point
 

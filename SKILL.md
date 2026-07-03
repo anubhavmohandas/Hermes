@@ -1,6 +1,6 @@
 ---
 name: apollo
-description: HERMES master orchestrator. Every request in a HERMES session routes through Apollo first — it reads HERMES.local.md, classifies intent, confirms the correct model tier via brain.py, routes to the right sub-skill (research/tasks/documents/mnemos/clio), and runs a verification pass before returning output. Trigger this skill at the start of every HERMES session, or whenever the user references HERMES, Apollo, Mnemos, Clio, or asks to search/research/plan/write-a-document/recall-something/check-token-usage inside a HERMES-managed project.
+description: HERMES master orchestrator. Every request in a HERMES session routes through Apollo first — it reads HERMES.local.md, classifies intent, confirms the correct model tier via brain.py, routes to the right sub-skill (create/research/tasks/documents/webdev/mnemos/clio), and runs a verification pass before returning output. "Make/create/build X" requests go through the skills/create intake interview (prompts/ library) before anything is built. Trigger this skill at the start of every HERMES session, or whenever the user references HERMES, Apollo, Mnemos, Clio, or asks to search/research/plan/write-a-document/recall-something/check-token-usage inside a HERMES-managed project.
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch, TaskCreate, TaskUpdate
 homepage: internal — HERMES personal system
 author: Anubhav Mohandas
@@ -30,14 +30,16 @@ User → Apollo → brain.py (tier) → [verify.sh fires automatically as a PreT
    - `python3 brain.py check --task "self-check" --model <TIER_1 model>` returns valid JSON
    - `hooks/verify.sh` exists and is executable
    - `mnemos/store.py`, `clio/tracker.py`, `meta/security/gate.py` exist
+   - `prompts/README.md` exists and `~/.claude/skills/pptx/SKILL.md` is present (the installed document/design skills the create flow routes to — if missing, report "create flow degraded: document skills not installed")
 4. **Print a status line** before doing anything else:
 
 ```
 HERMES loaded. <PLATFORM> mode.
 ✓ hooks: active | ✓ brain.py: accessible
-✓ core: research, tasks, documents, mnemos v1+v2, clio v1, meta/security, curator v1, reasoningbank, dream
+✓ core: create (intake+prompts), research, tasks, documents, webdev, mnemos v1+v2, clio v1, meta/security, curator v1, reasoningbank, dream
+✓ installed skills: docx, pptx, xlsx, pdf, ui-ux-pro-max (+6 design skills), frontend-design, theme-factory, web-artifacts-builder, webapp-testing, canvas-design (~/.claude/skills)
 ✓ autonomy: cron, delegation, fetcher, connect (Stage 3) | ✓ hardening: tier3 guard, D1 approval tokens, think-scrubber, upstream tracker, 7-layer audit (Stage 4)
-○ opt-in: db, webdev, media, caveman, kanban, turbo-memory, notebooklm, composio (Stage 5 — each installs on demand with a fallback)
+○ opt-in: db, media, caveman, kanban, turbo-memory, notebooklm, composio (Stage 5 — each installs on demand with a fallback)
 ✗ NYX (Stage 6): out of scope — not built yet
 ```
 
@@ -78,9 +80,11 @@ If any self-check fails, say so plainly in the status line (`✗ brain.py: NOT F
 
 | User intent | Route to | Status |
 |---|---|---|
-| search / find / research / look up / what is | `skills/research/SKILL.md` | Active |
+| **make / create / build a DELIVERABLE** — presentation, report, spreadsheet, PDF, website, web app, mobile app, tool, research brief | `skills/create/SKILL.md` — intake interview from `prompts/<type>.md` FIRST, then route to the executing skill | Active |
+| search / find / research / look up / what is | `skills/research/SKILL.md` (Fetcher-backed; deep dives via `prompts/research.md` intake) | Active |
 | task / plan / break down / todo / track | `skills/tasks/SKILL.md` | Active |
-| write / create / generate / document / report / PDF / DOCX / XLSX / PPTX | `skills/documents/SKILL.md` | Active |
+| document format handling / "turn this into a DOCX/PDF/XLSX/PPTX" (content already exists) | `skills/documents/SKILL.md` → installed `~/.claude/skills/{docx,pdf,xlsx,pptx}` | Active |
+| website / landing page / frontend / dashboard / mobile app (post-intake build) | `skills/webdev/SKILL.md` (ui-ux-pro-max + frontend-design + webdev.py tokens + webapp-testing) | Active |
 | remember / recall / what did we decide / search past sessions | `mnemos/hybrid_search.py` (3-tier: BM25 → regex → semantic HNSW) | Active (v2) |
 | token usage / cost / how many tokens / what's this costing | `clio/tracker.py report` | Active (v1) |
 | self-correct / what went wrong / don't repeat that mistake / show me recurring failures | `curator/consolidate.py` + `curator/propose.py` | Active (v1) |
@@ -180,9 +184,11 @@ If Bash isn't available or is restricted:
 | Session store (SQLite WAL+FTS5, 4 memory types) | Mnemos v1 | 3A | Active |
 | MEMORY.md index caps | Mnemos v1 | 3A | Active |
 | Token tracking | Clio v1 | 3A | Active |
-| Research (WebSearch backend) | skills/research/ | 3A | Active |
+| Deliverable intake + prompt library | skills/create/ + prompts/ | 5 | Active (interview → brief → build → verify → deliver; 8 deliverable types) |
+| Research (Fetcher backend, WebSearch fallback) | skills/research/ | 3A/3C | Active |
 | Tasks (TaskCreate pattern) | skills/tasks/ | 3A | Active |
-| Documents (routes to docx/pdf/xlsx/pptx skills) | skills/documents/ | 3A | Active |
+| Documents (routes to installed docx/pdf/xlsx/pptx skills) | skills/documents/ | 3A | Active (skills installed at `~/.claude/skills/`) |
+| Web & mobile builds (design-system-first) | skills/webdev/ | 5 | Active (ui-ux-pro-max + frontend-design + webapp-testing installed; tokens via integrations/webdev.py) |
 | HNSW semantic memory + 3-tier hybrid search | Mnemos v2 | 3B | Active (Tier C uses a hashing-trick embedder, not a real semantic model — see §4) |
 | Error capture + reflexion taxonomy + human-gate proposals | Curator v1 | 3B | Active |
 | Reward-scored task memory | ReasoningBank | 3B | Active |
@@ -196,7 +202,7 @@ If Bash isn't available or is restricted:
 | Streaming think-block scrubber (P20 state machine) | think_scrubber | 3D | Active (`meta/security/think_scrubber.py`) |
 | Upstream source-repo drift tracker (report-only) | upstream_tracker | 3D | Active (`meta/upstream_tracker.py`) |
 | Repeatable 7-layer security audit | audit.py | 3D | Active (`meta/security/audit.py` — 11 checks, re-runnable) |
-| Opt-in breadth (each with a fallback) | integrations/ | 5 | Active on demand: db, webdev, media, caveman, kanban, turbo-memory, notebooklm, composio |
+| Opt-in breadth (each with a fallback) | integrations/ | 5 | Active on demand: db, media, caveman, kanban, turbo-memory, notebooklm, composio (webdev promoted to skills/webdev/) |
 | NYX Tier 3 integration | — | 6 | Out of scope — NYX not built yet |
 
 Apollo knows all of these exist. Stages 0–5 are built and proven (123 tests green). NYX (Stage 6) is deliberately out of scope until NYX itself exists.

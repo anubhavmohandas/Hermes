@@ -16,6 +16,7 @@ plugin.json says mnemos-v2/reasoningbank are ACTIVE, and "active" must mean
 Run:  python3 test_hermes.py        (or: python3 -m pytest test_hermes.py)
 """
 import json
+import re
 import os
 import subprocess
 import sys
@@ -868,6 +869,8 @@ class TestOllamaClient(HermesTestCase):
 # ---------------------------------------------------------------------------
 class TestActiveModulesProvablyRun(HermesTestCase):
     MODULE_ENTRYPOINTS = {
+        "create": "skills/create/SKILL.md",
+        "webdev": "skills/webdev/SKILL.md",
         "research": "skills/research/SKILL.md",
         "tasks": "skills/tasks/SKILL.md",
         "documents": "skills/documents/SKILL.md",
@@ -908,6 +911,46 @@ class TestActiveModulesProvablyRun(HermesTestCase):
                 f"dep is not importable ({hnsw_index.HNSW_IMPORT_ERROR}). Either "
                 f"`pip install -r requirements.txt` or move them to modules.offline — "
                 f"'active' must mean 'provably runs'.")
+
+
+# ---------------------------------------------------------------------------
+# Create flow — prompts library contract + routing wiring
+# ---------------------------------------------------------------------------
+class TestCreateFlow(HermesTestCase):
+    PROMPT_FILES = ("presentation.md", "report.md", "spreadsheet.md", "pdf.md",
+                    "website.md", "mobile.md", "tool.md", "research.md")
+    REQUIRED_SECTIONS = ("# Intake", "# Execution")
+
+    def test_prompt_library_complete_and_well_formed(self):
+        for fname in self.PROMPT_FILES:
+            path = ROOT / "prompts" / fname
+            self.assertTrue(path.exists(), f"prompts/{fname} missing — create flow "
+                                           f"advertises it in skills/create/SKILL.md")
+            text = path.read_text()
+            self.assertTrue(text.startswith("---"),
+                            f"prompts/{fname} missing frontmatter (deliverable/route)")
+            for section in self.REQUIRED_SECTIONS:
+                self.assertIn(section, text,
+                              f"prompts/{fname} missing required section '{section}'")
+
+    def test_apollo_routes_create_intents_to_create_skill(self):
+        apollo = (ROOT / "SKILL.md").read_text()
+        self.assertIn("skills/create/SKILL.md", apollo,
+                      "Apollo routing table lost the create-flow row")
+        self.assertIn("skills/webdev/SKILL.md", apollo,
+                      "Apollo routing table lost the webdev row")
+
+    def test_create_skill_references_only_existing_prompt_files(self):
+        create = (ROOT / "skills" / "create" / "SKILL.md").read_text()
+        for ref in re.findall(r"prompts/([a-z]+\.md)", create):
+            self.assertTrue((ROOT / "prompts" / ref).exists(),
+                            f"skills/create references prompts/{ref} which does not exist")
+
+    def test_research_skill_is_fetcher_backed(self):
+        research = (ROOT / "skills" / "research" / "SKILL.md").read_text()
+        self.assertIn("fetcher/fetch.py", research,
+                      "skills/research no longer routes through Fetcher — Stage 3 "
+                      "item 3 requires Fetcher to replace the WebSearch backend")
 
 
 # ---------------------------------------------------------------------------

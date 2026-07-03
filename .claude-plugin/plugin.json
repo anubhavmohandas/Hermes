@@ -1,6 +1,6 @@
 {
   "name": "hermes",
-  "version": "0.5.0-stage5",
+  "version": "0.6.0-create",
   "description": "Hybrid Engine for Research, Memory, Execution & Synthesis. Stages 0-5 built and proven: security-gated orchestration + memory/self-improvement (Apollo, Mnemos v2, Curator, ReasoningBank, Dream), autonomy (Cron durable scheduler, Delegation, Fetcher SAFE_MODE, Connect MCP+PKCE), hardening (Tier-3 guard, D1 approval tokens, think-scrubber, upstream tracker, repeatable 7-layer audit), and opt-in integrations (db, webdev, media, caveman, kanban, turbo memory, notebooklm, composio). NYX (Stage 6) deliberately out of scope.",
   "skill": "SKILL.md",
   "hooks": {
@@ -19,6 +19,8 @@
   "license": "private",
   "modules": {
     "active": [
+      "create",
+      "webdev",
       "research",
       "tasks",
       "documents",
@@ -36,7 +38,6 @@
     ],
     "opt_in": [
       "db",
-      "webdev",
       "media",
       "caveman",
       "kanban",

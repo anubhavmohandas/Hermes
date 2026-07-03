@@ -86,6 +86,38 @@ newer document), and claims against the SVG should not be made.
 
 ---
 
+## D3 — Installed third-party skills vs. Invariant #4 (patterns, not code)
+
+**Found:** 2026-07-03, while wiring the create flow. Sixteen skills were
+installed to `~/.claude/skills/`: nine from the official Anthropic skills
+repo (docx, pdf, pptx, xlsx, frontend-design, web-artifacts-builder,
+theme-factory, canvas-design, webapp-testing) and seven from ui-ux-pro-max
+(MIT, third-party — ui-ux-pro-max, design, design-system, ui-styling,
+slides, brand, banner-design). The Anthropic ones were always planned to
+run as-is (v1 blueprint: documents = "anthropic/skills", same as the
+kept-as-is TypeScript MCPs). But ui-ux-pro-max's `scripts/search.py`
+executes third-party Python locally — that is running someone else's code,
+which Invariant #4 exists to avoid.
+
+**What's live today:** ui-ux-pro-max installed and used as design-
+intelligence tooling by `skills/webdev` and the create flow. Mitigations:
+MIT-licensed, code present and readable on disk, runs offline against its
+own CSV data (no network calls), and it only *advises* (design systems) —
+it writes nothing and executes nothing else. `nextlevelbuilder/
+ui-ux-pro-max-skill` added to the upstream watchlist.
+
+**Options:** (A) accept as a scoped exception — "official skills + audited
+MIT design-data tooling run as-is; everything else patterns-only"; (B)
+reimplement the search as a HERMES module over the same CSVs (the data is
+the value; the script is ~simple retrieval); (C) run it only through
+`skills_guard` scanning on install (partially done — the SessionStart sweep
+covers `~/.claude/skills` only if pointed there).
+
+**Status: needs the human's call.** Until decided, treat it as (A) with the
+watchlist entry as the drift guard.
+
+---
+
 *Add new entries above this line as they come up. Don't resolve a D-item by
 editing this file alone — the code has to change too, and the entry should
 note the commit/date it was closed.*
