@@ -44,3 +44,5 @@ route: <the skill/module that actually produces the output>
 | `mobile.md` | Mobile app (React Native/Expo) | `skills/webdev/SKILL.md` (react-native stack) |
 | `tool.md` | CLI tool / script / utility | spec-first build (spec-kit pattern), Claude Code native |
 | `research.md` | Research brief / deep dive | `skills/research/SKILL.md` (Fetcher-backed) |
+| `plan.md` | Staged plan / brainstorm / design review | in-conversation + `skills/tasks` tracking |
+| `content.md` | Blog / social / README copy / resume / cover letter | in-conversation → `skills/documents` for file output |

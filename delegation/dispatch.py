@@ -57,6 +57,27 @@ ASYNC_CHILD_ALLOWED = ("Read", "Grep", "Glob", "WebSearch")
 
 DEFAULT_TIMEOUT_SECONDS = 300
 
+# Markers that mean "the account's usage window is exhausted / API is
+# throttling" — NOT a real task failure. delegation/agenda.py retries these
+# on the next cron tick instead of counting them toward its stall limit.
+# Matched case-insensitively against child stdout+stderr on nonzero exit.
+RATE_LIMIT_MARKERS = ("usage limit", "rate limit", "limit reached",
+                      "rate_limit", "overloaded", "quota", "429", "529",
+                      "resets at")
+
+
+def classify_output(returncode: int, output: str) -> str:
+    """Pure classification of a finished child: 'completed',
+    'rate_limited', or 'failed(rc=N)'. Rate-limit detection only applies to
+    FAILED children — a successful run that merely mentions the words is a
+    completion."""
+    if returncode == 0:
+        return "completed"
+    lowered = (output or "").lower()
+    if any(m in lowered for m in RATE_LIMIT_MARKERS):
+        return "rate_limited"
+    return f"failed(rc={returncode})"
+
 
 def claude_cli_available() -> bool:
     return shutil.which("claude") is not None
@@ -84,8 +105,8 @@ def _run_child(argv, timeout_seconds):
     try:
         proc = subprocess.run(argv, capture_output=True, text=True,
                               timeout=timeout_seconds, cwd=str(HERMES_ROOT))
-        status = "completed" if proc.returncode == 0 else f"failed(rc={proc.returncode})"
         output = (proc.stdout or proc.stderr or "").strip()
+        status = classify_output(proc.returncode, output)
     except subprocess.TimeoutExpired:
         status = "interrupted"
         output = f"child killed at {timeout_seconds}s timeout"

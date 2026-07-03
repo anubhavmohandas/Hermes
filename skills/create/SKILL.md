@@ -23,6 +23,8 @@ verify → deliver.** Never skip to building.
 | mobile app / android / ios / react native | `prompts/mobile.md` |
 | tool / script / CLI / utility / automation | `prompts/tool.md` |
 | research / investigate / deep dive / find out | `prompts/research.md` |
+| plan / brainstorm / design review / roadmap | `prompts/plan.md` |
+| blog / post / marketing copy / resume / cover letter | `prompts/content.md` |
 
 Ambiguous ("make me something for my client meeting")? Ask which, with the
 options — don't guess.

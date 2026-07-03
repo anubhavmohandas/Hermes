@@ -55,6 +55,8 @@ import upstream_tracker
 import tier3
 import scheduler as cron_scheduler
 import dispatch as delegation_dispatch
+import agenda as delegation_agenda
+import repopack
 import fetch as fetcher_fetch
 import oauth_pkce
 import caveman
@@ -883,6 +885,7 @@ class TestActiveModulesProvablyRun(HermesTestCase):
         "ollama-dispatch": "ollama_client.py",
         "cron": "cron/scheduler.py",
         "delegation": "delegation/dispatch.py",
+        "agenda": "delegation/agenda.py",
         "fetcher": "fetcher/fetch.py",
         "connect": "connect/mcp_client.py",
     }
@@ -914,11 +917,151 @@ class TestActiveModulesProvablyRun(HermesTestCase):
 
 
 # ---------------------------------------------------------------------------
+# Agenda — durable auto-resume across usage-limit resets
+# ---------------------------------------------------------------------------
+class TestAgenda(HermesTestCase):
+    def setUp(self):
+        d = self.tmpdir()
+        self.patch_attrs(delegation_agenda, AGENDA_DIR=d)
+        # Mnemos writes are exercised elsewhere; here they must not touch the vault.
+        self.patch_attrs(delegation_agenda, _write_mnemos=lambda a, s: None)
+        # tick() must not depend on a real claude binary in tests.
+        self.patch_attrs(delegation_dispatch, claude_cli_available=lambda: True)
+
+    @staticmethod
+    def _runner(rc, out):
+        return lambda argv, cwd, timeout: (rc, out)
+
+    def test_classify_output_rate_limit_vs_failure(self):
+        self.assertEqual(delegation_dispatch.classify_output(0, "anything"), "completed")
+        self.assertEqual(delegation_dispatch.classify_output(1, "5-hour usage limit reached"),
+                         "rate_limited")
+        self.assertEqual(delegation_dispatch.classify_output(1, "Error 529: overloaded"),
+                         "rate_limited")
+        self.assertEqual(delegation_dispatch.classify_output(2, "SyntaxError: bad code"),
+                         "failed(rc=2)")
+        # A SUCCESSFUL run that merely mentions the words is a completion.
+        self.assertEqual(delegation_dispatch.classify_output(0, "we discussed rate limits"),
+                         "completed")
+
+    def test_add_creates_durable_state_and_workspace(self):
+        out = delegation_agenda.add("research X overnight")
+        self.assertTrue(out["added"])
+        state = delegation_agenda._load(out["id"])
+        self.assertEqual(state["status"], "active")
+        self.assertFalse(state["allow_bash"])
+        self.assertTrue(Path(out["workspace"]).is_dir())
+
+    def test_rate_limited_attempt_retries_and_never_stalls(self):
+        aid = delegation_agenda.add("goal", max_failures=2)["id"]
+        for _ in range(10):  # way past max_failures — limits are not failures
+            delegation_agenda.tick(runner=self._runner(1, "usage limit reached, resets at 5pm"))
+        state = delegation_agenda._load(aid)
+        self.assertEqual(state["status"], "active")
+        self.assertEqual(state["rate_limited_count"], 10)
+        self.assertEqual(state["consecutive_failures"], 0)
+
+    def test_continue_then_done_lifecycle(self):
+        aid = delegation_agenda.add("write findings")["id"]
+        delegation_agenda.tick(runner=self._runner(
+            0, "did some work\nAGENDA_STATUS: CONTINUE drafted section 1, next: section 2"))
+        state = delegation_agenda._load(aid)
+        self.assertEqual(state["status"], "active")
+        self.assertIn("drafted section 1", state["progress"][-1]["note"])
+        # Progress notes must reach the next attempt's prompt (resume-from-notes).
+        self.assertIn("drafted section 1", delegation_agenda.build_resume_prompt(state))
+        delegation_agenda.tick(runner=self._runner(
+            0, "finished\nAGENDA_STATUS: DONE findings written to findings.md"))
+        state = delegation_agenda._load(aid)
+        self.assertEqual(state["status"], "done")
+        self.assertIn("findings.md", state["result"])
+
+    def test_genuine_failures_stall_after_max(self):
+        aid = delegation_agenda.add("goal", max_failures=3)["id"]
+        for _ in range(3):
+            delegation_agenda.tick(runner=self._runner(1, "Traceback: something real broke"))
+        state = delegation_agenda._load(aid)
+        self.assertEqual(state["status"], "stalled")
+        # Human gate to resume: retry reactivates and resets the ledger.
+        delegation_agenda._set_status(aid, "active", "human retry")
+        state = delegation_agenda._load(aid)
+        self.assertEqual(state["consecutive_failures"], 0)
+
+    def test_bash_denied_by_default_granted_only_at_add_time(self):
+        delegation_agenda.add("no bash goal")
+        argv_no = delegation_agenda.tick(dry_run=True)["argv"]
+        allowed_no = argv_no[argv_no.index("--allowedTools") + 1]
+        self.assertNotIn("Bash", allowed_no)
+        # forbidden four are never present regardless of profile
+        for tool in delegation_dispatch.FORBIDDEN_CHILD_TOOLS:
+            self.assertNotIn(tool, allowed_no)
+
+    def test_one_attempt_per_tick_round_robins(self):
+        a1 = delegation_agenda.add("first")["id"]
+        a2 = delegation_agenda.add("second")["id"]
+        hit = []
+        def runner(argv, cwd, timeout):
+            hit.append(cwd)
+            return 0, "AGENDA_STATUS: CONTINUE step"
+        delegation_agenda.tick(runner=runner)
+        delegation_agenda.tick(runner=runner)
+        self.assertEqual(len(hit), 2)
+        self.assertNotEqual(hit[0], hit[1], "second tick must serve the other agenda")
+        self.assertEqual({Path(h).name.split(".")[0] for h in hit}, {a1, a2})
+
+
+# ---------------------------------------------------------------------------
+# repopack — pack caps, redaction, reviewer fan-out through delegation
+# ---------------------------------------------------------------------------
+class TestRepopack(HermesTestCase):
+    def test_pack_includes_text_skips_binary_redacts_secrets(self):
+        src = self.tmpdir()
+        (src / "a.py").write_text("API = 'sk-ant-api03-" + "x" * 40 + "'\nprint('hi')\n")
+        (src / "b.bin").write_bytes(b"\x00\x01\x02real binary")
+        (src / "logo.png").write_bytes(b"fakepng")
+        out = self.tmpdir() / "packed.md"
+        result = repopack.pack(src, out)
+        self.assertTrue(result["packed"])
+        text = out.read_text()
+        self.assertIn("a.py", text)
+        self.assertNotIn("b.bin", text)
+        self.assertNotIn("sk-ant-api03", text, "secret survived packing")
+
+    def test_pack_truncates_oversized_files(self):
+        src = self.tmpdir()
+        (src / "big.py").write_text("x = 1\n" * 50000)
+        out = self.tmpdir() / "packed.md"
+        result = repopack.pack(src, out, max_file_kb=8)
+        self.assertIn("big.py", result["truncated"])
+
+    def test_review_dry_run_builds_six_capped_children(self):
+        src = self.tmpdir()
+        (src / "a.py").write_text("print('hi')\n")
+        out = self.tmpdir() / "packed.md"
+        repopack.pack(src, out)
+        result = repopack.review(out, dry_run=True)
+        self.assertTrue(result["reviewed"])
+        self.assertEqual(len(result["commands"]), 6)
+        self.assertEqual(result["max_concurrent"], 3)
+
+    def test_review_refuses_unknown_lens_and_missing_pack(self):
+        self.assertFalse(repopack.review(Path("/nonexistent.md"), dry_run=True)["reviewed"])
+        src = self.tmpdir()
+        (src / "a.py").write_text("pass\n")
+        out = self.tmpdir() / "p.md"
+        repopack.pack(src, out)
+        r = repopack.review(out, lenses=["security", "vibes"], dry_run=True)
+        self.assertFalse(r["reviewed"])
+        self.assertIn("vibes", str(r["reason"]))
+
+
+# ---------------------------------------------------------------------------
 # Create flow — prompts library contract + routing wiring
 # ---------------------------------------------------------------------------
 class TestCreateFlow(HermesTestCase):
     PROMPT_FILES = ("presentation.md", "report.md", "spreadsheet.md", "pdf.md",
-                    "website.md", "mobile.md", "tool.md", "research.md")
+                    "website.md", "mobile.md", "tool.md", "research.md",
+                    "plan.md", "content.md")
     REQUIRED_SECTIONS = ("# Intake", "# Execution")
 
     def test_prompt_library_complete_and_well_formed(self):

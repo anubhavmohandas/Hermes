@@ -72,3 +72,38 @@ Dream's own `.dream.lock` + `interval_hours` config
 (`mnemos/dream/dream_config.json`) still apply on top of Cron's scheduling —
 if something already consolidated within the interval, the run exits as a
 no-op rather than double-running.
+
+---
+
+## Agenda — auto-resume across usage-limit resets
+
+`delegation/agenda.py` is the "my 5-hour window ran out, keep going without
+me typing continue" mechanism. Setup, once:
+
+```bash
+# 1. Create the agenda (the human decision point — Bash only if YOU grant it)
+python3 delegation/agenda.py add "Research X, write findings to findings.md" \
+    [--allow-bash] [--child-timeout 1800]
+
+# 2. Wire the tick into cron (every 15 min by default)
+python3 delegation/agenda.py install-cron
+
+# 3. Make sure cron itself is hosted (launchd — same plist as everything else)
+#    hooks/com.hermes.cron.plist.template → ~/Library/LaunchAgents/
+```
+
+How the reset is survived, mechanically: each tick runs ONE attempt for the
+most-starved active agenda as a fresh `claude -p` child. While the usage
+window is exhausted, the attempt fails in seconds with a rate-limit marker —
+`dispatch.classify_output` labels it `rate_limited`, which does NOT count
+toward the stall limit, and the agenda simply stays active. The first tick
+after the window resets does real work again and appends a progress note.
+Repeat until the child prints `AGENDA_STATUS: DONE …`, at which point the
+result lands in Mnemos.
+
+Honest limits (also in the module docstring): this resumes from *notes*, not
+from the dead session's context; "immediately after reset" means "within one
+tick interval"; genuine failures (not rate limits) stall the agenda after
+`--max-failures` consecutive ones and wait for a human `retry` — never an
+infinite retry spiral (RecoveryLedger pattern). Cowork cannot host any of
+this (Invariant #7).

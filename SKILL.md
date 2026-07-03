@@ -91,6 +91,8 @@ If any self-check fails, say so plainly in the status line (`✗ brain.py: NOT F
 | review pending self-improvement proposals | `curator/pending/*.json` — read them, `curator/approve.py approve\|reject <id>` on the user's explicit decision only | Active (v1) |
 | spawn / parallel / dispatch sub-agents | `delegation/dispatch.py` (≤3 children, forbidden-tool restriction enforced) | Active (Stage 3) |
 | overnight / autonomous / scheduled / cron | `cron/scheduler.py` (durable SQLite, `.tick.lock`, 3-min interrupt) | Active (Stage 3) |
+| **keep working after my usage limit resets** / don't stop when tokens run out / run until done | `delegation/agenda.py` — durable agenda; cron tick retries through the limit (rate-limited attempts don't count as failures) and auto-continues from progress notes. `add` → `install-cron` once. Honest limit: resume-from-notes within one tick interval, not a live-session restore | Active |
+| pack the repo for review / full-codebase review | `integrations/repopack.py` (pack → 6 reviewer lenses fanned out via delegation) | Active (Stage 5) |
 | open URL / screenshot / browser / scrape / crawl | `fetcher/fetch.py` (SAFE_MODE, SSRF-checked every hop; Tavily/Firecrawl key-gated) | Active (Stage 3) |
 | connect to Slack / GitHub / Notion / external tool | `connect/mcp_client.py` (native MCP + PKCE via `connect/oauth_pkce.py`); connectors ledgered in `integrations/composio.py` | Active (Stage 3) |
 | talk like caveman / be brief / less tokens | `integrations/caveman.py` (deterministic token reduction, keeps negations) or `output-styles/terse.md` | Active (Stage 5) |
@@ -194,6 +196,8 @@ If Bash isn't available or is restricted:
 | Reward-scored task memory | ReasoningBank | 3B | Active |
 | On-demand consolidation | Dream | 3B | Active (now schedulable via Cron — `cron/scheduler.py add dream ...`) |
 | Sub-agent spawn (≤3 children, forbidden-tool restriction) | Delegation | 3C | Active (`delegation/dispatch.py` — needs `claude` CLI on PATH to actually spawn) |
+| Durable agenda + auto-resume across usage-limit resets | Agenda | 3C+ | Active (`delegation/agenda.py` — rate-limited attempts retry free; genuine failures stall after N per RecoveryLedger; children write only in their workspace, Bash only via add-time `--allow-bash`) |
+| Codebase packing + 6-lens review fan-out | repopack | 5 | Active (`integrations/repopack.py` — stdlib pack, reviewers via delegation) |
 | Durable scheduler (SQLite, `.tick.lock`, 3-min interrupt, Mnemos write-back) | Cron | 3C | Active (`cron/scheduler.py` — host under launchd, Invariant #7) |
 | Web research (Tavily/Firecrawl + SAFE_MODE + SSRF-every-hop) | Fetcher | 3C | Active (`fetcher/fetch.py` — search needs an API key; direct fetch always works) |
 | MCP client + capability negotiation + PKCE OAuth | Connect | 3C | Active (`connect/mcp_client.py`, `connect/oauth_pkce.py`) |

@@ -33,11 +33,13 @@
       "ollama-dispatch",
       "cron",
       "delegation",
+      "agenda",
       "fetcher",
       "connect"
     ],
     "opt_in": [
       "db",
+      "repopack",
       "media",
       "caveman",
       "kanban",
