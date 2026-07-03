@@ -35,9 +35,13 @@ User → Apollo → brain.py (tier) → [verify.sh fires automatically as a PreT
 ```
 HERMES loaded. <PLATFORM> mode.
 ✓ hooks: active | ✓ brain.py: accessible
-✓ modules: research, tasks, documents, mnemos v1+v2, clio v1, meta/security, curator v1, reasoningbank, dream
-✗ Delegation/Cron/Fetcher/Connect: offline (Phase 3C)
+✓ core: research, tasks, documents, mnemos v1+v2, clio v1, meta/security, curator v1, reasoningbank, dream
+✓ autonomy: cron, delegation, fetcher, connect (Stage 3) | ✓ hardening: tier3 guard, D1 approval tokens, think-scrubber, upstream tracker, 7-layer audit (Stage 4)
+○ opt-in: db, webdev, media, caveman, kanban, turbo-memory, notebooklm, composio (Stage 5 — each installs on demand with a fallback)
+✗ NYX (Stage 6): out of scope — not built yet
 ```
+
+On CLI, autonomy modules need their host: Cron runs under launchd (`hooks/com.hermes.cron.plist.template`, see `docs/SCHEDULING.md`), Delegation needs the `claude` CLI on PATH, Fetcher's search needs `TAVILY_API_KEY`/`FIRECRAWL_API_KEY`. Each says so plainly when its host is missing rather than faking a result. In Cowork, the overnight loop can't run at all (Invariant #7).
 
 If any self-check fails, say so plainly in the status line (`✗ brain.py: NOT FOUND — tier routing disabled, defaulting to Tier 1`) rather than silently continuing as if everything works.
 
@@ -81,14 +85,15 @@ If any self-check fails, say so plainly in the status line (`✗ brain.py: NOT F
 | token usage / cost / how many tokens / what's this costing | `clio/tracker.py report` | Active (v1) |
 | self-correct / what went wrong / don't repeat that mistake / show me recurring failures | `curator/consolidate.py` + `curator/propose.py` | Active (v1) |
 | review pending self-improvement proposals | `curator/pending/*.json` — read them, `curator/approve.py approve\|reject <id>` on the user's explicit decision only | Active (v1) |
-| spawn / parallel / dispatch sub-agents | Delegation | Offline — Phase 3C |
-| overnight / autonomous / scheduled / cron | Cron | Offline — Phase 3C |
-| open URL / screenshot / browser / scrape / crawl | Fetcher | Offline — Phase 3C |
-| connect to Slack / GitHub / Notion / external tool | Connect | Offline — Phase 3C |
-| talk like caveman / be brief / less tokens | `output-styles/terse.md` (Caveman mode itself is Phase 4) | Partial |
+| spawn / parallel / dispatch sub-agents | `delegation/dispatch.py` (≤3 children, forbidden-tool restriction enforced) | Active (Stage 3) |
+| overnight / autonomous / scheduled / cron | `cron/scheduler.py` (durable SQLite, `.tick.lock`, 3-min interrupt) | Active (Stage 3) |
+| open URL / screenshot / browser / scrape / crawl | `fetcher/fetch.py` (SAFE_MODE, SSRF-checked every hop; Tavily/Firecrawl key-gated) | Active (Stage 3) |
+| connect to Slack / GitHub / Notion / external tool | `connect/mcp_client.py` (native MCP + PKCE via `connect/oauth_pkce.py`); connectors ledgered in `integrations/composio.py` | Active (Stage 3) |
+| talk like caveman / be brief / less tokens | `integrations/caveman.py` (deterministic token reduction, keeps negations) or `output-styles/terse.md` | Active (Stage 5) |
 | explain fully / verbose / step by step | `output-styles/verbose.md` | Active |
 | /help | `commands/help.md` | Active |
 | /status | `commands/status.md` | Active |
+| /goal | `commands/goal.md` — full end goal + gated roadmap + current stage + next action | Active |
 | [anything else] | Apollo handles directly, no sub-skill | — |
 
 When a request maps to an **offline** row, say so directly and name the phase. Do not attempt a half version of it and do not pretend it doesn't exist.
@@ -131,9 +136,9 @@ Treat your own context the way `HERMES_Phase3_Blueprint.docx` §5.1 specifies: s
 
 ---
 
-## 6. Sub-agent tool restrictions (applies once Delegation/dispatch exists — Phase 3C)
+## 6. Sub-agent tool restrictions (ENFORCED — `delegation/dispatch.py`, Stage 3)
 
-Not active yet, but the constraint is locked in now so nothing gets built that violates it later: any sub-agent Apollo spawns must NOT receive `TaskStop`, `AskUserQuestion`, or `EnterPlanMode`. Async/overnight agents get a further restricted tool set. Apollo itself should not grant `ExitPlanMode` to anything it routes to.
+Now enforced in code, not just intended: `delegation/dispatch.py` builds every child's argv with `FORBIDDEN_CHILD_TOOLS = (TaskStop, AskUserQuestion, EnterPlanMode, ExitPlanMode)` stripped from the allow-list AND passed as `--disallowedTools` — a caller who explicitly requests one of them still doesn't get it (the restriction is architectural). Concurrency is capped at `MAX_CHILDREN = 3` (a `ThreadPoolExecutor(max_workers=3)`; extra prompts queue, they aren't rejected). Async/overnight children (`--async-profile`, what Cron spawns) get an observation-only tool set (`Read/Grep/Glob/WebSearch` — no `Write`/`Bash`): an unattended child that can mutate answers to nobody. Tests: `TestDelegation`.
 
 ---
 
@@ -171,7 +176,7 @@ If Bash isn't available or is restricted:
 | Orchestration/routing | Apollo | 3A | Active (this file) |
 | Tier classification + logging | brain.py | 3A | Active |
 | Tier 2 dispatch (local Ollama, `/api/chat`) | ollama_client.py | 3B | Active (requires Ollama running + OLLAMA_MODEL set — `status` subcommand reports readiness) |
-| 7-layer security gate | meta/security/ | 3A | Active (layers 4+6 fire via write/edit content scan + bash exec-path scan; full skills sweep at SessionStart) |
+| 7-layer security gate | meta/security/ | 3A | Active. Layer 4: scans Write/Edit skill content, and **blocks** bash writes to skill paths (redirect/tee/cp/sed -i/curl -o) since their content can't be verified from the command string. Layer 6: scans bash exec-path *structure* (magic bytes, setuid) — not script logic. SessionStart sweep is **detection-only/advisory** (SessionStart hooks cannot block a session), covering out-of-band edits to skills/, SKILL.md, .claude-plugin/. |
 | Session store (SQLite WAL+FTS5, 4 memory types) | Mnemos v1 | 3A | Active |
 | MEMORY.md index caps | Mnemos v1 | 3A | Active |
 | Token tracking | Clio v1 | 3A | Active |
@@ -181,12 +186,17 @@ If Bash isn't available or is restricted:
 | HNSW semantic memory + 3-tier hybrid search | Mnemos v2 | 3B | Active (Tier C uses a hashing-trick embedder, not a real semantic model — see §4) |
 | Error capture + reflexion taxonomy + human-gate proposals | Curator v1 | 3B | Active |
 | Reward-scored task memory | ReasoningBank | 3B | Active |
-| On-demand consolidation | Dream | 3B | Active (manual trigger only — not yet scheduled, that's Cron in 3C) |
-| Sub-agent spawn | Delegation | 3C | Offline |
-| Durable scheduler | Cron | 3C | Offline |
-| Web research (Firecrawl/Tavily/Playwright) | Fetcher | 3C | Offline |
-| MCP client, OAuth | Connect | 3C | Offline |
-| Multi-profile board | Kanban | 3C | Offline |
-| NYX Tier 3 integration | — | 3D | Offline |
+| On-demand consolidation | Dream | 3B | Active (now schedulable via Cron — `cron/scheduler.py add dream ...`) |
+| Sub-agent spawn (≤3 children, forbidden-tool restriction) | Delegation | 3C | Active (`delegation/dispatch.py` — needs `claude` CLI on PATH to actually spawn) |
+| Durable scheduler (SQLite, `.tick.lock`, 3-min interrupt, Mnemos write-back) | Cron | 3C | Active (`cron/scheduler.py` — host under launchd, Invariant #7) |
+| Web research (Tavily/Firecrawl + SAFE_MODE + SSRF-every-hop) | Fetcher | 3C | Active (`fetcher/fetch.py` — search needs an API key; direct fetch always works) |
+| MCP client + capability negotiation + PKCE OAuth | Connect | 3C | Active (`connect/mcp_client.py`, `connect/oauth_pkce.py`) |
+| Tier-3 routing guard (2nd sensitivity check, EU/US jurisdiction) | tier3.py | 3D | Active (`tier3.py` — selection only; Apollo dispatches) |
+| Interactive approval tokens (D1 resolution, single-use) | approval_token | 3D | Active (`meta/security/approval_token.py` + gate.py) |
+| Streaming think-block scrubber (P20 state machine) | think_scrubber | 3D | Active (`meta/security/think_scrubber.py`) |
+| Upstream source-repo drift tracker (report-only) | upstream_tracker | 3D | Active (`meta/upstream_tracker.py`) |
+| Repeatable 7-layer security audit | audit.py | 3D | Active (`meta/security/audit.py` — 11 checks, re-runnable) |
+| Opt-in breadth (each with a fallback) | integrations/ | 5 | Active on demand: db, webdev, media, caveman, kanban, turbo-memory, notebooklm, composio |
+| NYX Tier 3 integration | — | 6 | Out of scope — NYX not built yet |
 
-Apollo knows all of these exist. It states which phase they land in when asked. It does not attempt them early.
+Apollo knows all of these exist. Stages 0–5 are built and proven (123 tests green). NYX (Stage 6) is deliberately out of scope until NYX itself exists.

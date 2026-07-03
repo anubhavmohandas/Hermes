@@ -4,20 +4,23 @@
 
 A personal, multi-model autonomous capability platform built as a Claude Code plugin. Every request routes through a single orchestrator, passes through a security gate that a prompt cannot override, and feeds a self-improvement loop that never applies its own suggestions without a human approving them first.
 
-Built by [Anubhav Mohandas](https://github.com/anubhavmohandas), grounded in 1,420 architectural patterns extracted from 56 production repositories — reimplemented fresh, not copied.
+Built by [Anubhav Mohandas](https://github.com/anubhavmohandas), grounded in 1,420 architectural patterns extracted from 58 production repositories — reimplemented fresh, not copied.
 
 ---
 
 ## Status
 
-**Phase 3A and 3B are built and tested. Phase 3C has not started.**
+**Stages 0–5 are built and proven — 123 tests green (2 environment-conditional skips). NYX (Stage 6) is deliberately out of scope: NYX doesn't exist yet.**
 
-| Phase | Scope | Status |
+| Stage | Scope | Status |
 |---|---|---|
-| 3A | Apollo orchestration, `brain.py` tier router, 7-layer security gate, Mnemos v1 (SQLite WAL+FTS5), Clio token tracking | ✅ Built, tested |
-| 3B | Mnemos v2 (HNSW + 3-tier hybrid search), Curator v1 (mistake capture + human-gated proposals), ReasoningBank (reward-scored task memory), Dream consolidation | ✅ Built, tested |
-| 3C | Cron + Delegation, Fetcher (Tavily/Firecrawl/Playwright), Connect (MCP client, OAuth) | ⬜ Not started |
-| 3D | Full security audit, benchmarks, NYX Tier 3 fallback | ⬜ Not started |
+| 0 | Prove & package: `requirements.txt`, import-guarded Tier C, `test_hermes.py`, clean tree, one real end-to-end request on real disk | ✅ Proven |
+| 1 (3A) | Apollo orchestration, `brain.py` tier router, 7-layer security gate, Mnemos v1 (SQLite WAL+FTS5), Clio token tracking | ✅ Built, tested |
+| 2 (3B) | Mnemos v2 (HNSW + 3-tier hybrid search), Curator v1 (human-gated proposals), ReasoningBank (reward-scored task memory), Dream consolidation | ✅ Built, tested |
+| 3 (3C) | Cron (durable SQLite scheduler, `.tick.lock`, 3-min interrupt, Mnemos write-back), Delegation (≤3 children, forbidden-tool restriction), Fetcher (Tavily/Firecrawl, SAFE_MODE, SSRF-every-hop), Connect (native MCP client + capability negotiation + PKCE OAuth) | ✅ Built, tested |
+| 4 (3D) | Repeatable 7-layer audit, Clio benchmark baseline, Tier-3 routing guard (2nd sensitivity check + EU/US jurisdiction), D1 interactive approval tokens, streaming think-block scrubber, upstream drift tracker | ✅ Built, tested |
+| 5 | Opt-in breadth, each with a fallback: db (Supabase/SQLite + migrations), webdev, media, caveman, kanban, turbo memory (C++/NumPy/Python), NotebookLM, Composio | ✅ Built, tested |
+| 6 | NYX integration | ⬜ Out of scope — NYX not built yet |
 
 ## Architecture
 
@@ -36,7 +39,14 @@ Nothing bypasses Apollo. Nothing bypasses the security gate — it's a `PreToolU
 | **Clio** | Token/cost tracking, read from disk — no proxy or request interception. |
 | **Curator** | Captures failures into a deduplicated, recurrence-counted taxonomy and proposes fixes. Proposals sit in `curator/pending/` until a human explicitly approves or rejects them. Nothing auto-applies, ever. |
 | **ReasoningBank** | Stores `{task, approach, outcome, reward, critique}` per completed task; retrieves the top-scoring past approaches (reward > 0.8) for similar new tasks. |
-| **Dream** | On-demand consolidation pass, lock-protected against concurrent runs. Not yet scheduled automatically — that lands with Cron in Phase 3C. |
+| **Dream** | On-demand consolidation pass, lock-protected against concurrent runs. Now schedulable via Cron (`cron/scheduler.py add dream "python3 mnemos/dream.py" --daily 03:30`). |
+| **Cron** (`cron/scheduler.py`) | Durable SQLite scheduler — `.tick.lock` (mtime-based staleness), per-job 3-minute hard interrupt, every completed run written back to Mnemos so results are retrievable next session. Commands classified through `approval.py` at add- and run-time; approval-tier commands are refused (unattended = no one to approve). Hosted under launchd (`hooks/com.hermes.cron.plist.template`); Cowork can't host it (Invariant #7). |
+| **Delegation** (`delegation/dispatch.py`) | Sub-agent fan-out capped at 3 concurrent children. `TaskStop`/`AskUserQuestion`/`EnterPlanMode`/`ExitPlanMode` are stripped from every child unconditionally; overnight children get an observation-only tool set. |
+| **Fetcher** (`fetcher/fetch.py`) | Live web access with SSRF checks on every redirect hop, SAFE_MODE (GET-only, byte-capped, TLS-verified), and key-gated Tavily/Firecrawl search that never fabricates results. Fetched content is marked untrusted and secret-scrubbed. |
+| **Connect** (`connect/`) | Native MCP stdio client with enforced capability negotiation + `X-Agent-Id` provenance, and an OAuth 2.1 PKCE (S256-only) helper. Server commands run through the same approval gate as everything else. |
+| **Tier-3 guard** (`tier3.py`) | Availability-only fallback selection with an independent second sensitivity check, Chinese-API exclusion, and EU/US jurisdiction filter (fails closed on unknown jurisdiction). Selects; never dispatches. |
+| **Approval tokens** (`meta/security/approval_token.py`) | D1 resolution: a single-use, command-bound, 300s token lets a human approve one specific dangerous command through the otherwise fail-closed hook. |
+| **Opt-in integrations** (`integrations/`) | db, webdev, media, caveman, kanban, turbo memory, NotebookLM, Composio — each independently installable with a verified fallback, none on the critical path. |
 
 ## Model routing
 
@@ -67,9 +77,9 @@ Install as a Claude Code plugin via `.claude-plugin/plugin.json`, which register
 
 ## Security constraints — non-negotiable
 
-- Sensitive data (CVEs, recon output, pentest notes, HERMES/SAGE/NYX internals) routes to Tier 1 or Tier 2 only — never Tier 3, regardless of availability or cost.
-- HERMES never auto-applies its own suggestions. Curator proposals require explicit human approval via `curator/approve.py`.
-- No executable code is copied from any analyzed repository — patterns only, reimplemented fresh.
+- Sensitive data (CVEs, recon output, pentest notes, HERMES/SAGE/NYX internals) routes to Tier 1 or Tier 2 only — never Tier 3, regardless of availability or cost. The Tier-3 guard (`tier3.py`) re-runs the sensitivity check independently before any fallback route, so two call sites must both fail for sensitive data to leak.
+- HERMES never auto-applies its own suggestions. Curator proposals require explicit human approval via `curator/approve.py`; dangerous shell commands require a single-use human-granted approval token; scheduled Cron jobs cannot carry approval-tier commands at all.
+- No executable code is copied from any analyzed repository — patterns only, reimplemented fresh. This holds across all 58 source repos, including the newly-merged Fetcher/Connect sources.
 
 ## License
 

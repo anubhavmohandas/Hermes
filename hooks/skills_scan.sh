@@ -16,7 +16,7 @@ HERMES_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GUARD="$HERMES_ROOT/meta/security/skills_guard.py"
 
 STATUS=0
-for target in "$HERMES_ROOT/skills" "$HERMES_ROOT/SKILL.md"; do
+for target in "$HERMES_ROOT/skills" "$HERMES_ROOT/SKILL.md" "$HERMES_ROOT/.claude-plugin"; do
     [ -e "$target" ] || continue
     OUT="$(python3 "$GUARD" "$target" 2>&1)" || STATUS=1
     if [ "$STATUS" -ne 0 ]; then

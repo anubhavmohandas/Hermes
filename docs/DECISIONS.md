@@ -40,11 +40,20 @@ matching, unexpired token before falling back to deny. This keeps the hook
 fail-closed by default while giving a real, audited path for the human to
 say yes to a specific command, once.
 
-**Status: not implemented.** Option B is the direction, but it adds a new
-token-handshake surface between Apollo (prompt-level) and the hook
-(platform-level) that deserves its own build-and-test pass, not a
-same-session patch bolted onto an audit fix. Until built, Option A's
-behavior (hard block, correctly labeled now) is what's live.
+**Status: RESOLVED 2026-07-03 — Option B built.** `meta/security/approval_token.py`
+implements the handshake: Apollo asks the human via `AskUserQuestion` BEFORE
+the Bash call and, on an explicit yes, calls `approval_token.grant(command)`,
+which writes a token to `logs/.approved/<md5>.json`. When the Bash call then
+hits the hook, `gate.py`'s approval branch calls
+`approval_token.check_and_consume(command)`. The token is: bound to the exact
+command string (approving `sudo ls` does not approve `sudo rm`), single-use
+(deleted on first check), and short-lived (300s TTL). The hook still fails
+closed by default — no token, no pass — so the security posture only relaxes
+for a specific command a human just approved, once. Tests: `TestApprovalToken`
+(grant→allow-once→re-block, command-binding, expiry) + the audit's "D1 token
+allows once then re-blocks" check. The human-gate invariant (Invariant #3) is
+intact: nothing here decides; it only carries an explicit human yes across the
+Apollo→hook process boundary.
 
 ---
 

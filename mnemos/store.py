@@ -29,12 +29,25 @@ MEMORY_TYPES = ("user", "feedback", "project", "reference")
 _REFERENCE_RE = re.compile(
     r"https?://|www\.|(?:[\w\-./]+/)+[\w\-.]+\.\w{1,6}|\bsee (?:the )?docs?\b|\bdashboard\b|\bticket\b",
     re.IGNORECASE)
+# Feedback = guidance/corrections about HOW to work. Recall raised 2026-07-03
+# after verification found natural corrections ("you got that wrong, fix it")
+# matching nothing and silently falling through to the `project` catch-all —
+# which is the exact signal Curator depends on. Grouped so the intent is
+# legible: directives, corrections, and standing preferences.
 _FEEDBACK_RE = re.compile(
-    r"\bdon'?t\b|\bnever\b|\balways\b|\binstead of\b|\byou should(?:n'?t)?\b|\bstop (?:doing|using)\b|"
-    r"\bprefer(?:red)?\b|\bthat was wrong\b|\bnext time\b",
+    # directives
+    r"\bdon'?t\b|\bnever\b|\balways\b|\binstead of\b|\byou should(?:n'?t)?\b|\bshould(?:'ve| have)\b|"
+    r"\bshouldn'?t\b|\bstop (?:doing|using)\b|\bmake sure\b|\bfrom now on\b|\bnext time\b|\bin (?:the )?future\b|"
+    # corrections
+    r"\bgot (?:that|it|this)\b.{0,20}\bwrong\b|\b(?:that|it|this)(?:'s| is| was)? (?:wrong|incorrect|not right)\b|"
+    r"\byou'?re wrong\b|\bfix (?:it|that|this)\b|\bredo\b|\byou missed\b|\bnot what i (?:asked|wanted|meant|said)\b|"
+    r"\bmistake\b|\bcorrection\b|"
+    # standing preferences about the work
+    r"\bprefer(?:red|ence)?\b|\btoo (?:verbose|wordy|long|terse|brief|short)\b|\bbe (?:more|less)\b",
     re.IGNORECASE)
 _USER_RE = re.compile(
-    r"\bi am\b|\bi'?m a\b|\bmy (?:role|job|name|email|machine|setup|workflow)\b|\bi work\b|\bi use\b|\bi like\b",
+    r"\bi am\b|\bi'?m a\b|\bmy (?:role|job|name|email|machine|setup|workflow|team|company)\b|"
+    r"\bi work\b|\bi use\b|\bi like\b|\bi'?m the\b|\bcall me\b|\bi'?m based\b",
     re.IGNORECASE)
 
 

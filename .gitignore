@@ -16,10 +16,72 @@ curator/archived/*.json
 reasoningbank/hnsw/
 reasoningbank/task_log.jsonl
 
+# Secrets & credentials — never commit, security tool going public (proactive)
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+id_rsa*
+id_ed25519*
+secrets/
+*.secret
+*_secret*
+credentials.json
+
+# Any local override variant of machine config
+*.local.md
+!HERMES.local.md.example
+
+# Claude Code local settings — carries absolute paths + local tool permissions.
+# The "local" suffix is Claude Code's own convention for machine-specific config.
+# Commit .claude/settings.json (shared) if you want; never the .local one.
+.claude/settings.local.json
+
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Extra runtime safety nets (broader than exact filenames above)
+logs/*.log
+**/*.db
+**/*.db-journal
+**/*.db-wal
+**/*.db-shm
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
 # OS
 .DS_Store
+**/.DS_Store
+Thumbs.db
+desktop.ini
 
+cron/cron.db*
+cron/.tick.lock
+logs/.approved/
+meta/upstreams.json
+integrations/db/*.sqlite*
+integrations/kanban.db*
+integrations/composio_registry.json

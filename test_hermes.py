@@ -16,6 +16,7 @@ plugin.json says mnemos-v2/reasoningbank are ACTIVE, and "active" must mean
 Run:  python3 test_hermes.py        (or: python3 -m pytest test_hermes.py)
 """
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -24,8 +25,11 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parent
-for sub in ("", "meta/security", "mnemos", "reasoningbank", "curator"):
+for sub in ("", "meta", "meta/security", "mnemos", "reasoningbank", "curator",
+            "cron", "delegation", "fetcher", "connect", "integrations"):
     sys.path.insert(0, str(ROOT / sub))
+# integrations/db/store.py is loaded by file path in its test — NOT added to
+# sys.path, so it can't shadow mnemos/store.py (both are named `store`).
 
 import brain
 import file_safety
@@ -42,6 +46,21 @@ import consolidate
 import propose
 import approve
 import ollama_client
+
+# Phase 3C/3D/Stage-5 modules
+import approval_token
+import think_scrubber
+import upstream_tracker
+import tier3
+import scheduler as cron_scheduler
+import dispatch as delegation_dispatch
+import fetch as fetcher_fetch
+import oauth_pkce
+import caveman
+import turbo_memory
+import webdev
+import notebooklm
+import composio
 
 
 class HermesTestCase(unittest.TestCase):
@@ -216,11 +235,14 @@ class TestRedact(HermesTestCase):
 # gate.py — the 7-layer dispatcher (function level + real CLI entry point)
 # ---------------------------------------------------------------------------
 class TestGate(HermesTestCase):
-    def test_bash_approval_tier_hard_blocks(self):
+    def test_bash_approval_tier_blocks_without_token(self):
+        # D1 (2026-07-03): approval tier still fails closed BY DEFAULT — the
+        # only way through is a granted single-use token (tested below).
         allowed, layer, reason = gate.run_gate("bash", {"command": "sudo ls /"})
         self.assertFalse(allowed)
         self.assertEqual(layer, "approval")
-        self.assertIn("BLOCKED by default", reason)
+        self.assertIn("BLOCKED", reason)
+        self.assertIn("approval token", reason)
 
     def test_bash_safe_command_allowed(self):
         allowed, layer, _ = gate.run_gate("bash", {"command": "echo hi"})
@@ -313,6 +335,46 @@ class TestGate(HermesTestCase):
         p.chmod(0o755)
         allowed, _, _ = gate.run_gate("bash", {"command": f"{p}"})
         self.assertTrue(allowed)
+
+    # --- 2026-07-03: bash-write bypass of skills_guard, closed fail-closed ---
+
+    def test_bash_write_to_skill_path_blocked_all_vectors(self):
+        for cmd in (
+            'cat > skills/x/SKILL.md <<EOF\neval(x)\nEOF',
+            'printf "eval(x)" | tee skills/x/SKILL.md',
+            'cp /tmp/staged.md skills/x/SKILL.md',
+            'echo clean >> skills/tasks/SKILL.md',
+            'sed -i "" "s/a/b/" skills/research/SKILL.md',   # macOS in-place
+            'sed -i "s/a/b/" skills/research/SKILL.md',        # GNU in-place
+            'perl -pi -e "s/a/b/" skills/tasks/SKILL.md',
+            'curl https://x.example/p -o skills/x/SKILL.md',
+            'wget -O skills/x/SKILL.md https://x.example',
+            'dd if=/tmp/x of=skills/x/SKILL.md',
+            'echo x > .claude-plugin/plugin.json',
+        ):
+            allowed, layer, _ = gate.run_gate("bash", {"command": cmd})
+            self.assertFalse(allowed, f"should block: {cmd!r}")
+            self.assertEqual(layer, "skills_guard", cmd)
+
+    def test_bash_write_to_nonskill_path_allowed(self):
+        # the fix must not turn into a blanket ban on redirects/sed/curl
+        for cmd in (
+            "echo hi > /tmp/notes.txt",
+            'sed -i "s/x/y/" notes/draft.md',
+            "curl https://api.example -o /tmp/out.json",
+            "git commit -m 'skills update'",   # 'skills' in a string, no write target
+            "grep -r eval skills/",
+            "cat skills/research/SKILL.md",     # read, not write
+        ):
+            allowed, _, _ = gate.run_gate("bash", {"command": cmd})
+            self.assertTrue(allowed, f"should allow: {cmd!r}")
+
+    def test_extract_write_targets(self):
+        self.assertIn("skills/x/SKILL.md", gate._extract_write_targets("cat > skills/x/SKILL.md"))
+        self.assertIn("out.json", gate._extract_write_targets("curl x -o out.json"))
+        self.assertEqual(gate._extract_write_targets("echo hi | grep h"), [])
+        # 2>&1 and <<EOF must not be read as write targets
+        self.assertEqual(gate._extract_write_targets("run 2>&1"), [])
 
     def _run_gate_cli(self, stdin_text: str):
         return subprocess.run(
@@ -459,6 +521,29 @@ class TestMemoryTypes(HermesTestCase):
         ]
         for content, role, expected in cases:
             self.assertEqual(store.classify_memory_type(content, role), expected, content)
+
+    def test_classifier_recall_on_natural_corrections(self):
+        # 2026-07-03 verification: these natural-phrasing corrections used to
+        # match nothing and silently fall through to `project`, corrupting the
+        # signal Curator reads. They must land in `feedback`.
+        for content in (
+            "you got that wrong, fix it",
+            "that is incorrect, redo the analysis",
+            "from now on skip the preamble",
+            "you missed the edge case",
+            "too verbose, be more concise",
+            "you should have checked the mount first",
+        ):
+            self.assertEqual(store.classify_memory_type(content, "user"), "feedback", content)
+
+    def test_classifier_does_not_over_capture_project_notes(self):
+        # plain work notes must NOT get pulled into feedback/user
+        for content in (
+            "refactor brain.py to add a caching layer",
+            "the FTS5 index needs rebuilding after the migration",
+            "add a retry loop around the ollama call",
+        ):
+            self.assertEqual(store.classify_memory_type(content, "user"), "project", content)
 
     def test_write_classifies_and_persists(self):
         store.write_message("s1", "user", "I am a pentester by trade", db_path=self.db)
@@ -793,6 +878,10 @@ class TestActiveModulesProvablyRun(HermesTestCase):
         "reasoningbank": "reasoningbank/bank.py",
         "dream": "mnemos/dream.py",
         "ollama-dispatch": "ollama_client.py",
+        "cron": "cron/scheduler.py",
+        "delegation": "delegation/dispatch.py",
+        "fetcher": "fetcher/fetch.py",
+        "connect": "connect/mcp_client.py",
     }
 
     def _active_modules(self):
@@ -819,6 +908,324 @@ class TestActiveModulesProvablyRun(HermesTestCase):
                 f"dep is not importable ({hnsw_index.HNSW_IMPORT_ERROR}). Either "
                 f"`pip install -r requirements.txt` or move them to modules.offline — "
                 f"'active' must mean 'provably runs'.")
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 — Cron: security refusal, hard interrupt, lock exclusion
+# ---------------------------------------------------------------------------
+class TestCron(HermesTestCase):
+    def setUp(self):
+        # Point the scheduler at a throwaway db/lock so tests never touch the
+        # real cron.db or race a real loop.
+        d = self.tmpdir()
+        self.patch_attrs(cron_scheduler, DB_PATH=d / "cron.db")
+        self.patch_attrs(cron_scheduler, LOCK_PATH=d / ".tick.lock")
+        self.patch_attrs(cron_scheduler, CRON_DIR=d)
+
+    def test_add_refuses_approval_tier_command(self):
+        out = cron_scheduler.add_job("bad", "sudo rm -rf /tmp/x", "once")
+        self.assertFalse(out["added"])
+        self.assertIn("approval", out["reason"])
+
+    def test_hard_interrupt_kills_overrunning_job(self):
+        cron_scheduler.add_job("slow", "sleep 5", "once", timeout_seconds=1)
+        result = cron_scheduler.tick()
+        self.assertEqual(result["ran"][0]["status"], "interrupted")
+
+    def test_completed_job_records_and_disables_once(self):
+        cron_scheduler.add_job("ok", "echo done", "once", timeout_seconds=10)
+        result = cron_scheduler.tick()
+        self.assertEqual(result["ran"][0]["status"], "completed")
+        # 'once' job disables itself after running
+        jobs = cron_scheduler.list_jobs()
+        self.assertEqual(jobs[0]["enabled"], 0)
+        self.assertEqual(jobs[0]["runs_completed"], 1)
+
+    def test_lock_excludes_second_tick(self):
+        self.assertTrue(cron_scheduler.acquire_tick_lock())
+        try:
+            self.assertFalse(cron_scheduler.acquire_tick_lock())
+        finally:
+            cron_scheduler.release_tick_lock()
+        self.assertTrue(cron_scheduler.acquire_tick_lock())
+        cron_scheduler.release_tick_lock()
+
+    def test_lock_staleness_uses_mtime_not_body(self):
+        # Regression: a lock whose body hasn't been written yet must NOT be
+        # treated as stale/reclaimable — mtime exists atomically at create.
+        cron_scheduler.LOCK_PATH.write_text("")  # empty body, fresh mtime
+        self.assertFalse(cron_scheduler.acquire_tick_lock())
+        cron_scheduler.LOCK_PATH.unlink()
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 — Delegation: cap + forbidden-tool restriction are unbypassable
+# ---------------------------------------------------------------------------
+class TestDelegation(HermesTestCase):
+    def test_max_children_is_three_and_locked(self):
+        self.assertEqual(delegation_dispatch.MAX_CHILDREN, 3)
+
+    def test_forbidden_tools_never_granted_even_if_requested(self):
+        argv = delegation_dispatch.build_child_command(
+            "do x", allowed_tools=("Read", "TaskStop", "EnterPlanMode", "AskUserQuestion"))
+        joined = " ".join(argv)
+        i = argv.index("--allowedTools")
+        allowed = argv[i + 1]
+        for forbidden in delegation_dispatch.FORBIDDEN_CHILD_TOOLS:
+            self.assertNotIn(forbidden, allowed.split(","),
+                             f"{forbidden} must never appear in a child's allow-list")
+        # and they are explicitly disallowed
+        self.assertIn("--disallowedTools", argv)
+
+    def test_async_profile_is_observation_only(self):
+        argv = delegation_dispatch.build_child_command("scan", async_profile=True)
+        allowed = argv[argv.index("--allowedTools") + 1].split(",")
+        self.assertNotIn("Write", allowed)
+        self.assertNotIn("Bash", allowed)
+        self.assertIn("Read", allowed)
+
+    def test_dry_run_builds_commands_without_spawning(self):
+        out = delegation_dispatch.dispatch(["a", "b", "c", "d"], dry_run=True)
+        self.assertTrue(out["dry_run"])
+        self.assertEqual(len(out["commands"]), 4)  # queued, not rejected
+        self.assertEqual(out["max_concurrent"], 3)
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 — Fetcher: SSRF on every entry, safe-mode defaults, keyless honesty
+# ---------------------------------------------------------------------------
+class TestFetcher(HermesTestCase):
+    def test_metadata_endpoint_blocked(self):
+        out = fetcher_fetch.fetch_url("http://169.254.169.254/latest/meta-data/")
+        self.assertFalse(out["fetched"])
+        self.assertIn("SSRF", out["reason"])
+
+    def test_non_http_scheme_blocked(self):
+        out = fetcher_fetch.fetch_url("file:///etc/passwd")
+        self.assertFalse(out["fetched"])
+
+    def test_safe_mode_on_by_default(self):
+        # default (no env override) is safe-mode on
+        old = os.environ.pop("HERMES_FETCH_SAFE_MODE", None)
+        try:
+            self.assertTrue(fetcher_fetch.safe_mode_on())
+        finally:
+            if old is not None:
+                os.environ["HERMES_FETCH_SAFE_MODE"] = old
+
+    def test_search_without_keys_is_honest(self):
+        old_t = os.environ.pop("TAVILY_API_KEY", None)
+        old_f = os.environ.pop("FIRECRAWL_API_KEY", None)
+        try:
+            out = fetcher_fetch.search("anything")
+            self.assertIsNone(out["backend"])
+            self.assertEqual(out["results"], [])
+            self.assertIn("never faked", out["reason"])
+        finally:
+            if old_t is not None:
+                os.environ["TAVILY_API_KEY"] = old_t
+            if old_f is not None:
+                os.environ["FIRECRAWL_API_KEY"] = old_f
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 — Connect: PKCE correctness, capability negotiation is enforced
+# ---------------------------------------------------------------------------
+class TestConnectPKCE(HermesTestCase):
+    def test_rfc7636_test_vector(self):
+        # RFC 7636 Appendix B known vector
+        verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+        self.assertEqual(oauth_pkce.challenge_s256(verifier),
+                         "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+
+    def test_verifier_length_in_spec_window(self):
+        v = oauth_pkce.new_verifier()
+        self.assertTrue(43 <= len(v) <= 128)
+
+    def test_authorization_url_uses_s256(self):
+        url = oauth_pkce.authorization_url("https://a/auth", "cid", "https://cb",
+                                           "chal", scope="read")
+        self.assertIn("code_challenge_method=S256", url)
+        self.assertIn("state=", url)  # CSRF param always present
+
+    def test_mcp_client_refuses_command_that_needs_approval(self):
+        from connect import mcp_client
+        with self.assertRaises(PermissionError):
+            mcp_client.MCPStdioClient("sudo evil-mcp-server")
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 — Tier 3 guard: second sensitivity check, jurisdiction, exclusion
+# ---------------------------------------------------------------------------
+class TestTier3(HermesTestCase):
+    def test_sensitive_task_refused_no_override(self):
+        out = tier3.route("analyze this CVE-2025-1234 exploit chain")
+        self.assertFalse(out["routed"])
+        self.assertIn("sensitive", out["reason"].lower())
+
+    def test_nonsensitive_routes_to_eu_us_model(self):
+        out = tier3.route("summarize a public blog post about gardening")
+        self.assertTrue(out["routed"])
+        self.assertIn(out["jurisdiction"], ("EU", "US"))
+
+    def test_chain_contains_no_excluded_models(self):
+        for entry in tier3.TIER3_CHAIN:
+            allowed, _ = brain.check_model_allowed(3, entry["model"], via="api")
+            self.assertTrue(allowed, f"{entry['model']} must not be an excluded model")
+
+    def test_second_sensitivity_check_is_independent(self):
+        # even if some upstream mislabels it, tier3 re-checks and refuses
+        self.assertTrue(brain.check_sensitivity("pentest recon notes"))
+        self.assertFalse(tier3.route("pentest recon notes")["routed"])
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 — D1 approval token: single-use, command-bound, expiring
+# ---------------------------------------------------------------------------
+class TestApprovalToken(HermesTestCase):
+    def setUp(self):
+        self.patch_attrs(approval_token, TOKEN_DIR=self.tmpdir() / ".approved")
+
+    def test_grant_then_check_allows_once(self):
+        approval_token.grant("sudo ls")
+        ok, _ = approval_token.check_and_consume("sudo ls")
+        self.assertTrue(ok)
+        ok2, _ = approval_token.check_and_consume("sudo ls")  # consumed
+        self.assertFalse(ok2)
+
+    def test_token_is_command_bound(self):
+        approval_token.grant("sudo ls")
+        ok, _ = approval_token.check_and_consume("sudo rm -rf /")
+        self.assertFalse(ok)
+
+    def test_expired_token_refused_and_consumed(self):
+        self.patch_attrs(approval_token, TTL_SECONDS=-1)  # already expired
+        approval_token.grant("sudo ls")
+        ok, reason = approval_token.check_and_consume("sudo ls")
+        self.assertFalse(ok)
+        self.assertIn("expired", reason)
+
+    def test_gate_approval_branch_honors_token(self):
+        self.patch_attrs(gate.approval_token, TOKEN_DIR=self.tmpdir() / ".g")
+        blocked_before, _, _ = gate.run_gate("bash", {"command": "sudo ls /"})
+        self.assertFalse(blocked_before)
+        gate.approval_token.grant("sudo ls /")
+        allowed, _, _ = gate.run_gate("bash", {"command": "sudo ls /"})
+        self.assertTrue(allowed)
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 — think-block scrubber: streaming state machine
+# ---------------------------------------------------------------------------
+class TestThinkScrubber(HermesTestCase):
+    def test_whole_text(self):
+        self.assertEqual(think_scrubber.scrub_text("a<think>hidden</think>b"), "ab")
+
+    def test_tag_split_across_chunks(self):
+        s = think_scrubber.ThinkScrubber()
+        out = s.feed("hi <th") + s.feed("ink>x</thi") + s.feed("nk> yo") + s.flush()
+        self.assertEqual(out, "hi  yo")
+
+    def test_unclosed_block_fails_closed(self):
+        s = think_scrubber.ThinkScrubber()
+        out = s.feed("keep<think>leak") + s.flush()
+        self.assertNotIn("leak", out)
+        self.assertTrue(out.startswith("keep"))
+
+    def test_less_than_that_is_not_a_tag_is_preserved(self):
+        self.assertEqual(think_scrubber.scrub_text("if 1 < 2 then"), "if 1 < 2 then")
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 — upstream tracker: reports drift, never acts (injected fetcher)
+# ---------------------------------------------------------------------------
+class TestUpstreamTracker(HermesTestCase):
+    def setUp(self):
+        self.patch_attrs(upstream_tracker, STATE_PATH=self.tmpdir() / "up.json")
+
+    def test_watch_baseline_ack_and_drift(self):
+        upstream_tracker.watch("owner/repo")
+        # inject a fake head — no network
+        head1 = ("aaaa1111" * 5, "2026-01-01T00:00:00Z", None)
+        rep = upstream_tracker.check(fetcher=lambda r: head1)
+        self.assertEqual(rep["report"][0]["status"], "unbaselined")
+        upstream_tracker.ack("owner/repo")
+        # same head => unchanged
+        rep2 = upstream_tracker.check(fetcher=lambda r: head1)
+        self.assertEqual(rep2["report"][0]["status"], "unchanged")
+        # new head => DRIFT, but pointer does NOT move without ack
+        head2 = ("bbbb2222" * 5, "2026-02-02T00:00:00Z", None)
+        rep3 = upstream_tracker.check(fetcher=lambda r: head2)
+        self.assertEqual(rep3["report"][0]["status"], "DRIFT")
+        self.assertEqual(rep3["drifted"], 1)
+
+    def test_unreachable_repo_does_not_crash_run(self):
+        upstream_tracker.watch("owner/repo")
+        rep = upstream_tracker.check(fetcher=lambda r: (None, None, "unreachable: offline"))
+        self.assertEqual(rep["report"][0]["status"], "unreachable")
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 — repeatable 7-layer audit is green
+# ---------------------------------------------------------------------------
+class TestSecurityAudit(HermesTestCase):
+    def test_audit_all_layers_green(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "hermes_audit", ROOT / "meta" / "security" / "audit.py")
+        audit = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(audit)
+        result = audit.run_audit()
+        failed = [c for c in result["checks"] if not c["ok"]]
+        self.assertTrue(result["green"], f"audit not green; failed: {failed}")
+
+
+# ---------------------------------------------------------------------------
+# Stage 5 — integrations: each opt-in module + its fallback
+# ---------------------------------------------------------------------------
+class TestIntegrations(HermesTestCase):
+    def test_caveman_keeps_negations(self):
+        out = caveman.compress("this is not the right answer and never was")
+        self.assertIn("not", out.split())
+        self.assertIn("never", out.split())
+        self.assertNotIn("the", out.split())
+
+    def test_turbo_memory_fallback_ranks_correctly(self):
+        r = turbo_memory.selftest()
+        self.assertTrue(r["ok"])
+        self.assertIn(turbo_memory.backend(), ("cpp", "numpy", "python"))
+
+    def test_webdev_component_uses_tokens(self):
+        files = webdev.component("Button")
+        css = files["Button.css"]
+        self.assertIn("var(--color-accent)", css)
+
+    def test_notebooklm_refuses_online_for_sensitive(self):
+        d = self.tmpdir()
+        sens = d / "s.txt"
+        sens.write_text("CVE-2025-9999 exploit and recon notes")
+        out = notebooklm.prepare([str(sens)])
+        self.assertEqual(out["mode"], "local-offline")
+        self.assertIn("online_refused", out)
+
+    def test_composio_deny_by_default_and_unknown_rejected(self):
+        self.patch_attrs(composio, REGISTRY_PATH=self.tmpdir() / "reg.json")
+        self.assertFalse(composio.enable("does-not-exist")["enabled"])
+        st = composio.status()
+        self.assertEqual(st["enabled_count"], 0)  # deny by default
+
+    def test_db_module_migrates_and_is_idempotent(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "hermes_db_store", ROOT / "integrations" / "db" / "store.py")
+        db = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(db)
+        tmp = self.tmpdir()
+        self.patch_attrs(db, SQLITE_PATH=tmp / "t.sqlite")
+        first = db.migrate()
+        self.assertIn("0001_init", first["applied"])
+        second = db.migrate()  # idempotent
+        self.assertTrue(second["already_current"])
 
 
 if __name__ == "__main__":

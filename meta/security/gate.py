@@ -17,6 +17,7 @@ import path_security
 import url_safety
 import skills_guard
 import approval
+import approval_token
 import tirith_security
 import redact
 
@@ -51,6 +52,37 @@ def _is_skill_path(path: str) -> bool:
         return False
     p = Path(path)
     return "skills" in p.parts or ".claude-plugin" in p.parts or p.name.lower() == "skill.md"
+
+
+# Shell constructs that write to a file whose path is visible in the command:
+# redirects, tee, cp/mv destinations, sed -i targets, dd of=, install -m.
+# Regex-level extraction cannot fully parse shell semantics (quoting, var
+# expansion, exotic generators) — that's exactly WHY matches are blocked
+# outright rather than content-scanned; see the bash branch below.
+_WRITE_TARGET_PATTERNS = [
+    re.compile(r"(?<!<)(?<!\d)>{1,2}\s*([^\s;|&<>()]+)"),          # > file, >> file (not <<EOF, not 2>&1)
+    re.compile(r"\btee\s+(?:-[a-zA-Z]+\s+)*([^\s;|&]+)"),
+    re.compile(r"\b(?:cp|mv)\s+(?:-\S+\s+)*\S+\s+([^\s;|&]+)"),
+    re.compile(r"\bof=([^\s;|&]+)"),                               # dd of=
+    re.compile(r"\binstall\s+(?:-\S+\s+)*\S+\s+([^\s;|&]+)"),
+    re.compile(r"\s(?:-o|--output|-O)\s+([^\s;|&]+)"),             # curl -o / wget -O download targets
+]
+
+# In-place editors take the target file positionally with flag/script args in
+# between that vary by platform (macOS `sed -i "" ...` vs GNU `sed -i...`) —
+# too shapeshifting for one capture group. When one appears, EVERY token in
+# the command becomes a candidate target; the skill-path filter does the rest.
+_INPLACE_EDIT_RE = re.compile(r"\b(?:sed|perl|gawk|ex)\s[^;|&]*-\S*i|\bpatch\b|\btruncate\b")
+
+
+def _extract_write_targets(cmd: str):
+    cmd = cmd or ""
+    targets = []
+    for pattern in _WRITE_TARGET_PATTERNS:
+        targets.extend(m.group(1) for m in pattern.finditer(cmd))
+    if _INPLACE_EDIT_RE.search(cmd):
+        targets.extend(cmd.split())
+    return targets
 
 
 def run_gate(tool_name: str, tool_input: dict):
@@ -92,18 +124,40 @@ def run_gate(tool_name: str, tool_input: dict):
         if verdict == "block":
             return False, "approval", reason
         if verdict == "approval":
-            # Audited 2026-07-02 (M1): this DOES hard-block today. PreToolUse
-            # hooks are non-interactive — allow/deny only, no mechanism to
-            # pause and ask a human mid-call. Fail-safe (deny) is the
-            # correct default until a real interactive-approval path exists.
-            # See docs/DECISIONS.md for the deferred design (Apollo would
-            # need to ask via AskUserQuestion BEFORE invoking Bash, then
-            # pass an approval token this hook can check) — not built yet.
-            return False, "approval", reason + " — BLOCKED by default (no interactive approval path exists yet; see docs/DECISIONS.md)"
+            # D1 closed 2026-07-03 (Option B, docs/DECISIONS.md): the hook is
+            # still non-interactive and still fails closed BY DEFAULT — but
+            # Apollo can now ask the human via AskUserQuestion BEFORE the
+            # Bash call and, on an explicit yes, grant a single-use,
+            # command-bound, 300s token (approval_token.grant). That token is
+            # the only path through this branch, and checking it consumes it.
+            approved, token_reason = approval_token.check_and_consume(cmd)
+            if approved:
+                return True, "approval", f"{reason} — ALLOWED once: {token_reason}"
+            return False, "approval", (f"{reason} — BLOCKED ({token_reason}). "
+                                       f"Interactive path: Apollo asks the human, then "
+                                       f"approval_token.py grant — see docs/DECISIONS.md D1")
+        # Layer 4, bash leg (verified bypass, 2026-07-03): heredoc / tee /
+        # cp / sed -i / redirects can write skill files without ever touching
+        # the Write/Edit tools, and their true content is NOT derivable from
+        # the command string (variable expansion, command substitution, remote
+        # fetches) — so content-scanning the command would be false
+        # confidence. Fail closed instead: bash may not write to skill paths
+        # at all. Skill edits go through Write/Edit, where the exact content
+        # is visible and scanned.
+        for target in _extract_write_targets(cmd):
+            if _is_skill_path(target):
+                return False, "skills_guard", (
+                    f"bash write to skill path '{target}' blocked — skill file "
+                    f"content can't be verified from a shell command. Use the "
+                    f"Write/Edit tools, which are content-scanned.")
         # Layer 6 fires HERE — on files the command would execute — because
         # "exec" is not a real tool name and the old dispatch on it never ran
         # through the hook (audited 2026-07-02, C1). Only existing files are
         # scanned: a path that doesn't exist yet can't carry a payload.
+        # Honesty note: this checks STRUCTURE (magic bytes vs extension,
+        # setuid/setgid), not script logic — a plain #! script with hostile
+        # commands inside scans clean. Content protection for commands is
+        # approval.py's job, above.
         for exec_path in _extract_exec_paths(cmd):
             p = Path(exec_path).expanduser()
             if p.is_file():

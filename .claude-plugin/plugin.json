@@ -1,7 +1,7 @@
 {
   "name": "hermes",
-  "version": "0.4.0-phase3b",
-  "description": "Hybrid Engine for Research, Memory, Execution & Synthesis. Phase 3B: adds Mnemos v2 (HNSW 3-tier hybrid search), Curator v1 (mistake capture + human-gated proposals), ReasoningBank (reward-scored task memory), Dream (on-demand consolidation).",
+  "version": "0.5.0-stage5",
+  "description": "Hybrid Engine for Research, Memory, Execution & Synthesis. Stages 0-5 built and proven: security-gated orchestration + memory/self-improvement (Apollo, Mnemos v2, Curator, ReasoningBank, Dream), autonomy (Cron durable scheduler, Delegation, Fetcher SAFE_MODE, Connect MCP+PKCE), hardening (Tier-3 guard, D1 approval tokens, think-scrubber, upstream tracker, repeatable 7-layer audit), and opt-in integrations (db, webdev, media, caveman, kanban, turbo memory, notebooklm, composio). NYX (Stage 6) deliberately out of scope.",
   "skill": "SKILL.md",
   "hooks": {
     "PreToolUse": [
@@ -28,15 +28,24 @@
       "curator-v1",
       "reasoningbank",
       "dream",
-      "ollama-dispatch"
+      "ollama-dispatch",
+      "cron",
+      "delegation",
+      "fetcher",
+      "connect"
+    ],
+    "opt_in": [
+      "db",
+      "webdev",
+      "media",
+      "caveman",
+      "kanban",
+      "turbo-memory",
+      "notebooklm",
+      "composio"
     ],
     "offline": {
-      "delegation": "3C",
-      "cron": "3C",
-      "fetcher": "3C",
-      "connect": "3C",
-      "kanban": "3C",
-      "nyx": "3D"
+      "nyx": "Stage 6 — out of scope (NYX not built yet)"
     }
   },
   "security_constraints": {

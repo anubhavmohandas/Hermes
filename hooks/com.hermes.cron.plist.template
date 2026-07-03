@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.hermes.cron.plist.template — launchd host for the Phase 3C Cron loop.
+
+  This SUPERSEDES com.hermes.dream.plist.template: instead of launchd knowing
+  about one hardcoded job (Dream), launchd hosts the generic cron loop and
+  the loop reads its jobs from cron/cron.db (add them with
+  `python3 cron/scheduler.py add ...`). Migrate by unloading com.hermes.dream
+  and adding Dream as a cron job:
+      python3 cron/scheduler.py add dream "python3 mnemos/dream.py" --daily 03:30
+
+  Replace __HERMES_ROOT__ with the absolute repo path before loading
+  (docs/SCHEDULING.md has a one-liner that does it for you).
+
+  Invariant #7: Cowork cannot host this loop — launchd on the CLI box is the
+  production scheduler. KeepAlive restarts the loop if it dies; the loop's
+  .tick.lock makes an overlapping restart harmless (one tick wins).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.hermes.cron</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/env</string>
+        <string>python3</string>
+        <string>__HERMES_ROOT__/cron/scheduler.py</string>
+        <string>loop</string>
+        <string>--poll</string>
+        <string>60</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>__HERMES_ROOT__/logs/cron_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HERMES_ROOT__/logs/cron_launchd.log</string>
+    <key>WorkingDirectory</key>
+    <string>__HERMES_ROOT__</string>
+</dict>
+</plist>
