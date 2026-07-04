@@ -8,7 +8,7 @@ GATES — always work the lowest unmet; a gate is GREEN only when the stated evi
 
 G0 Real traffic: (a) logs/reasoning_seed.jsonl gains ≥1 entry from a GENUINE request with latency_ms>0; (b) Mnemos on real local disk: init+write+search round-trips, a memory written in process A retrieved in separate process B; (c) ReasoningBank: one real reward logged, retrieve_top_k() surfaces it before a similar new task; (d) Curator loop closes once WITH a human: real recurring failure → pending/ proposal → human approve → approved/, not re-proposed after. EVIDENCE: literal log lines + command transcript saved as a proof file under logs/.
 
-G1 Docs tell the truth (right after G0): README.md and plugin.json stop claiming "proven" for anything not gated green; test count matches the live `python3 test_hermes.py` tail; HERMES_GOAL/HERMES_MAP reconciled to actual build state (Stage 3/4 built, suite not "123"). EVIDENCE: diff + live test-count line.
+G1 Docs tell the truth (right after G0): NO tracked file — whole tree, never a hand-picked list — claims "proven" for anything not gated green, and every stated test count matches the live `python3 test_hermes.py` tail; verify with `git grep -nE "[0-9]+ tests|proven"`; HERMES_GOAL/HERMES_MAP reconciled to actual build state. EVIDENCE: diff + live test-count line + clean sweep output.
 
 G2 Orchestrator behaviorally tested: a golden set of ≥25 (request → expected tier, expected sub-skill) cases runs GREEN through brain.py + a real routing resolver inside test_hermes.py; assertIn() substring checks on SKILL.md do NOT count. EVIDENCE: pytest output.
 

@@ -59,9 +59,9 @@ except two inverted imports (listed below).
 
 - [x] Full suite green — 144 passed, 2 by-design skips (2026-07-03)
 - [ ] Suite still green at tag time (re-run on the release commit)
-- [ ] README claims match reality — it said "123 tests green" (then briefly
-      "156") while the suite runs 144. Sync counts, stage table, and module
-      list; tick when the corrected docs are committed.
+- [x] README claims match reality — it said "123 tests green" (then briefly
+      "156") while the suite runs 144; counts, stage table, and module list
+      synced 2026-07-04 (commit d175420, pushed).
 - [ ] `docs/` current: DECISIONS.md has the freeze entry,
       EXTRACTION_COVERAGE.md rows (local, untracked) still true at tag time
 
