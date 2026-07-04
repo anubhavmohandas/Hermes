@@ -72,8 +72,100 @@ Cross-reference: this same round-trip is the Gate 4 `claude -p` delegation-child
 - "| 6 | NYX integration | ⬜ Out of scope — NYX not built yet |"
 - "It was benchmarked at 0.933 recall@5 on a hand-labeled corpus, but that corpus was constructed with vocabulary overlap..."
 
-## 0b — Mnemos two-process round-trip on real local disk — OPEN
+## 0b — Mnemos two-process round-trip on real local disk — GREEN 2026-07-04
 
-## 0c — ReasoningBank real reward + retrieve_top_k() — OPEN
+Vault: mnemos/vault/mnemos.db on native APFS (~/Documents, CLI host — not the Cowork/FUSE mount).
+Canary and init passed with NO WAL-fallback warning, confirming the historical "disk I/O error"
+was the sandbox's FUSE view, not this machine. Each store.py CLI invocation below is a separate
+OS process.
 
-## 0d — Curator loop closed once WITH a human — OPEN (requires human approval step)
+```
+$ python3 mnemos/store.py canary
+vault writable
+$ python3 mnemos/store.py init
+initialized: /Users/anubhavmohandas/Documents/Claude/HERMES/hermes/mnemos/vault/mnemos.db
+
+# process A (shell pid 32970)
+$ python3 mnemos/store.py write "stabilize-2026-07-04" "user" "Gate 0a closed 2026-07-04: genuine Tier 1 request logged to reasoning_seed.jsonl with latency_ms=29793 via a real claude -p delegation child; transcript at logs/proof_gate0.md"
+wrote message id=33
+
+# process B (shell pid 33249, separate python process)
+$ python3 mnemos/store.py search "29793"
+[
+  {
+    "id": 33,
+    "session_id": "stabilize-2026-07-04",
+    "role": "user",
+    "content": "Gate 0a closed 2026-07-04: genuine Tier 1 request logged to reasoning_seed.jsonl with latency_ms=29793 via a real claude -p delegation child; transcript at logs/proof_gate0.md",
+    "created_at": "2026-07-04 02:25:43",
+    "memory_type": "reference"
+  }
+]
+```
+
+Re-run check: `python3 mnemos/store.py search "29793"` must return message id=33.
+The stored memory is itself genuine project state (the Gate 0a result), not filler.
+
+## 0c — ReasoningBank real reward + retrieve_top_k() — GREEN 2026-07-04
+
+The reward logged is genuinely earned: this session's Gate 0a task, whose outcome the human
+independently verified on disk. Retrieval was run as a separate process, with the query being
+the genuinely similar NEXT task (Gate 4's Tier 2 proof) — i.e., retrieval-before-a-similar-new-task,
+as the gate requires. Embedder: default offline hash backend (lexical, per its honest label).
+
+```
+$ python3 reasoningbank/bank.py log "Prove a genuine Tier 1 request end-to-end: route with brain.py check, execute a claude -p delegation child, log measured latency to reasoning_seed.jsonl" "brain.py check routed tier 1; delegation/dispatch.py ran one claude -p child (VSCode-bundled CLI appended to PATH) measuring elapsed_ms=29793; brain.py log recorded it; human verified the log line on disk" "Gate 0a green — reasoning_seed.jsonl entry with latency_ms=29793; proof at logs/proof_gate0.md" 0.9 true "claude CLI not on PATH; version-pinned extension binary is fragile — install standalone CLI before automating" 0 29793
+{... "reward": 0.9, "success": true, "latency_ms": 29793, "hnsw_label": 3}
+
+$ python3 reasoningbank/bank.py retrieve "Prove a genuine Tier 2 request end-to-end: route with brain.py check, execute an Ollama local chat, log measured latency" 3
+[
+  {"label": 0, "similarity": -0.0166, "text": "research CVE-2025-1234", ... "reward": 0.95 ...},
+  {"label": 3, "similarity": 0.7764, "text": "Prove a genuine Tier 1 request end-to-end: ...", ... "reward": 0.9 ...},
+  {"label": 2, "similarity": 0.0652, "text": "verify HERMES Stage 0 exit gate and build state", ... "reward": 0.9 ...}
+]
+```
+
+Re-run check: the retrieve command above must return label 3 with similarity ≈0.78.
+
+HONEST OBSERVATIONS (surfaced, not acted on — Invariant #3):
+1. task_log.jsonl lines 1–2 are seed/demo fixtures ("research CVE-2025-1234", paired
+   good/bad approaches). They pollute the audit trail and one OUTRANKS the relevant
+   memory at similarity −0.0166 because retrieve_top_k sorts reward-first. Human call:
+   purge the fixtures and/or reconsider the (reward, similarity) sort order. Not changed
+   here — task_log.jsonl is an audit trail and the sort is security-adjacent ranking logic.
+2. Gate met as written: the real memory IS surfaced (top-3, dominant similarity).
+
+## 0d — Curator loop closed once WITH a human — AT HUMAN GATE 2026-07-04 (machine half done)
+
+The recurring failure is real: logs/reflexion_seed.json lines 3–4 record the same crash twice
+(dedup_key 20031bba — "store.py write called before init on a fresh vault — crashed with
+'no such table: messages'", from the 2026-07-02 session). consolidate.py had already rolled it
+up with recurrence_count=2, meeting PROPOSAL_THRESHOLD.
+
+```
+$ python3 curator/propose.py
+{"proposals_written": 1, "ids": ["err_20031bba"]}
+
+$ cat curator/pending/err_20031bba.json
+{
+  "id": "err_20031bba",
+  "category": "assumption",
+  "task": "mnemos first write on fresh vault",
+  "failure_mode": "store.py write called before init on a fresh vault — crashed with 'no such table: messages' (canary alone does not create schema)",
+  "prevention_rule": "run 'store.py init' (canary + schema) before the first write on any fresh vault; write should give an actionable error naming init",
+  "recurrence_count": 2,
+  "status": "pending"
+}
+
+# no-duplicate check while pending (same dedup logic that must hold post-approval):
+$ python3 curator/propose.py
+{"proposals_written": 0, "ids": []}
+```
+
+REMAINING — HUMAN ONLY (Invariant #3, never self-approved):
+1. Anubhav reviews the proposal and runs:  python3 curator/approve.py approve err_20031bba
+2. Verify it landed:                       ls curator/approved/   (must show err_20031bba.json)
+3. Not-re-proposed check:                  python3 curator/propose.py   (must print proposals_written: 0)
+Paste those three outputs below this line to close 0d.
+
+---
