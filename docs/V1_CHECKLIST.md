@@ -20,7 +20,8 @@ except two inverted imports (listed below).
 ## 1 — Architecture
 
 - [x] Extraction corpus fully dispositioned — 58/58 rows in
-      `EXTRACTION_COVERAGE.md`, one deferred gap (graphify) documented
+      `EXTRACTION_COVERAGE.md` (kept local, untracked since 2026-07-04),
+      one deferred gap (graphify) documented
 - [ ] Architecture freeze recorded in `DECISIONS.md` (date + rationale)
 - [ ] Fix the only two inverted imports — subsystems reaching up into the
       orchestrator for policy calls:
@@ -58,10 +59,11 @@ except two inverted imports (listed below).
 
 - [x] Full suite green — 144 passed, 2 by-design skips (2026-07-03)
 - [ ] Suite still green at tag time (re-run on the release commit)
-- [ ] README claims match reality — it currently says "123 tests green";
-      the suite runs 144. Sync counts, stage table, and module list.
+- [ ] README claims match reality — it said "123 tests green" (then briefly
+      "156") while the suite runs 144. Sync counts, stage table, and module
+      list; tick when the corrected docs are committed.
 - [ ] `docs/` current: DECISIONS.md has the freeze entry,
-      EXTRACTION_COVERAGE.md rows still true at tag time
+      EXTRACTION_COVERAGE.md rows (local, untracked) still true at tag time
 
 ## 5 — Installation from scratch
 

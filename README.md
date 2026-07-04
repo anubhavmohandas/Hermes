@@ -10,7 +10,7 @@ Built by [Anubhav Mohandas](https://github.com/anubhavmohandas), grounded in 1,4
 
 ## Status
 
-**Stages 0–5 are built and unit-tested — 156 tests green (a couple skip until their optional dep — Ollama embeddings, markitdown — is installed).** Stage 0 is proven end-to-end on real disk: one genuine request has flowed through the full loop — route → cross-process memory → reward retrieval → human-gated Curator approval (evidence in `logs/proof_gate0.md`). Stages 1–5 are proven at the component level; proving the autonomy and external-integration paths on live traffic is in progress. NYX (Stage 6) is deliberately out of scope: NYX doesn't exist yet.
+**Stages 0–5 are built and unit-tested — 144 tests green (2 environment-conditional skips).** Stage 0 is proven end-to-end on real disk: one genuine request has flowed through the full loop — route → cross-process memory → reward retrieval → human-gated Curator approval (evidence kept locally in `logs/proof_gate0.md` — audit records stay out of the repo). Stages 1–5 are proven at the component level; proving the autonomy and external-integration paths on live traffic is in progress. NYX (Stage 6) is deliberately out of scope: NYX doesn't exist yet.
 
 | Stage | Scope | Status |
 |---|---|---|
