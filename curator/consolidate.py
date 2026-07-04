@@ -17,7 +17,6 @@ transformation that runs on demand (or via Dream consolidation, see
 mnemos/dream.py) and overwrites ONLY curator/reflexion.json.
 """
 import json
-import sys
 from pathlib import Path
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent

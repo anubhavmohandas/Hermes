@@ -65,15 +65,6 @@ def enforce_caps(content: str):
     return working, truncated, warning
 
 
-def write_memory_index(lines, path: Path = DEFAULT_INDEX_PATH):
-    """lines: list[str] (each is one index entry, WITHOUT trailing newline)."""
-    content = "\n".join(lines) + "\n"
-    final_content, truncated, warning = enforce_caps(content)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(final_content)
-    return truncated, warning
-
-
 def read_memory_index(path: Path = DEFAULT_INDEX_PATH):
     if not path.exists():
         return "", False, None

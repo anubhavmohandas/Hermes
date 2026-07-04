@@ -33,7 +33,6 @@ import shlex
 import subprocess
 import sys
 import threading
-import uuid
 from pathlib import Path
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent
