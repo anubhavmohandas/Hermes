@@ -10,16 +10,16 @@ Built by [Anubhav Mohandas](https://github.com/anubhavmohandas), grounded in 1,4
 
 ## Status
 
-**Stages 0–5 are built and proven — 123 tests green (2 environment-conditional skips). NYX (Stage 6) is deliberately out of scope: NYX doesn't exist yet.**
+**Stages 0–5 are built and unit-tested — 156 tests green (a couple skip until their optional dep — Ollama embeddings, markitdown — is installed).** Stage 0 is proven end-to-end on real disk: one genuine request has flowed through the full loop — route → cross-process memory → reward retrieval → human-gated Curator approval (evidence in `logs/proof_gate0.md`). Stages 1–5 are proven at the component level; proving the autonomy and external-integration paths on live traffic is in progress. NYX (Stage 6) is deliberately out of scope: NYX doesn't exist yet.
 
 | Stage | Scope | Status |
 |---|---|---|
-| 0 | Prove & package: `requirements.txt`, import-guarded Tier C, `test_hermes.py`, clean tree, one real end-to-end request on real disk | ✅ Proven |
-| 1 (3A) | Apollo orchestration, `brain.py` tier router, 7-layer security gate, Mnemos v1 (SQLite WAL+FTS5), Clio token tracking | ✅ Built, tested |
-| 2 (3B) | Mnemos v2 (HNSW + 3-tier hybrid search), Curator v1 (human-gated proposals), ReasoningBank (reward-scored task memory), Dream consolidation | ✅ Built, tested |
-| 3 (3C) | Cron (durable SQLite scheduler, `.tick.lock`, 3-min interrupt, Mnemos write-back), Delegation (≤3 children, forbidden-tool restriction), Fetcher (Tavily/Firecrawl, SAFE_MODE, SSRF-every-hop), Connect (native MCP client + capability negotiation + PKCE OAuth) | ✅ Built, tested |
-| 4 (3D) | Repeatable 7-layer audit, Clio benchmark baseline, Tier-3 routing guard (2nd sensitivity check + EU/US jurisdiction), D1 interactive approval tokens, streaming think-block scrubber, upstream drift tracker | ✅ Built, tested |
-| 5 | Opt-in breadth, each with a fallback: db (Supabase/SQLite + migrations), webdev, media, caveman, kanban, turbo memory (C++/NumPy/Python), NotebookLM, Composio | ✅ Built, tested |
+| 0 | Prove & package: `requirements.txt`, import-guarded Tier C, `test_hermes.py`, clean tree, one real end-to-end request on real disk | ✅ Proven (real disk; loop closed once with human gate) |
+| 1 (3A) | Apollo orchestration, `brain.py` tier router, 7-layer security gate, Mnemos v1 (SQLite WAL+FTS5), Clio token tracking | ✅ Built, unit-tested · orchestrator routing not yet behaviorally tested (Gate 2) |
+| 2 (3B) | Mnemos v2 (HNSW + 3-tier hybrid search), Curator v1 (human-gated proposals), ReasoningBank (reward-scored task memory), Dream consolidation | ✅ Built, unit-tested |
+| 3 (3C) | Cron (durable SQLite scheduler, `.tick.lock`, 3-min interrupt, Mnemos write-back), Delegation (≤3 children, forbidden-tool restriction), Fetcher (Tavily/Firecrawl, SAFE_MODE, SSRF-every-hop), Connect (native MCP client + capability negotiation + PKCE OAuth) | ✅ Built, unit-tested · live external paths (Ollama/search/MCP) not yet exercised (Gate 4) |
+| 4 (3D) | Repeatable 7-layer audit, Clio benchmark baseline, Tier-3 routing guard (2nd sensitivity check + EU/US jurisdiction), D1 interactive approval tokens, streaming think-block scrubber, upstream drift tracker | ✅ Built, unit-tested |
+| 5 | Opt-in breadth, each with a fallback: db (Supabase/SQLite + migrations), webdev, media, caveman, kanban, turbo memory (C++/NumPy/Python), NotebookLM, Composio | ✅ Built, unit-tested (opt-in, each with fallback) |
 | 6 | NYX integration | ⬜ Out of scope — NYX not built yet |
 
 ## Architecture
@@ -73,7 +73,7 @@ Install as a Claude Code plugin via `.claude-plugin/plugin.json`, which register
 
 **Mnemos v2's "semantic" search is not backed by a real embedding model.** `mnemos/embedder.py` is a deterministic hashing-trick bag-of-words/char-n-gram vectorizer — it catches lexical and substring overlap, not paraphrase or conceptual similarity. It was benchmarked at 0.933 recall@5 on a hand-labeled corpus, but that corpus was constructed with vocabulary overlap between queries and relevant documents; it does not demonstrate semantic generalization. Retrieval confidence is capped at `LOW` for semantic-only hits in `hybrid_search.py` for exactly this reason. Swapping in a real local embedding model (e.g. Ollama `nomic-embed-text`) only requires changing `embedder.py` — `hnsw_index.py` and `hybrid_search.py` don't need to change.
 
-**SQLite reliability depends on the filesystem.** Mnemos' WAL-mode store has failed with `disk I/O error` on at least one sandboxed/FUSE-mounted filesystem during development, while working correctly on a real local disk with the identical, unmodified code. `store.py` falls back to `DELETE` journal mode if `WAL` fails to initialize, and `hybrid_search.py` degrades to semantic-only retrieval if the SQLite-backed tiers are unavailable — but if your vault path ends up on a network drive or synced folder (Dropbox, OneDrive, iCloud Drive), verify it actually works before depending on it.
+**SQLite reliability depends on the filesystem.** Mnemos' WAL-mode store has failed with `disk I/O error` on at least one sandboxed/FUSE-mounted filesystem during development, while working correctly on a real local disk with the identical, unmodified code (confirmed 2026-07-04: a two-process write/retrieve passes on real local APFS disk — the failures were the FUSE-mounted view only). `store.py` falls back to `DELETE` journal mode if `WAL` fails to initialize, and `hybrid_search.py` degrades to semantic-only retrieval if the SQLite-backed tiers are unavailable — but if your vault path ends up on a network drive or synced folder (Dropbox, OneDrive, iCloud Drive), verify it actually works before depending on it.
 
 ## Security constraints — non-negotiable
 

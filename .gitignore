@@ -5,6 +5,15 @@ HERMES.local.md
 logs/*.jsonl
 logs/*.json
 logs/debug.log
+
+# Audit/proof evidence — local working records (gate proofs, coverage audits), never uploaded
+logs/*.md
+docs/EXTRACTION_COVERAGE.md
+docs/SRC_PATTERNS_*.md
+
+# FUSE mount litter (Cowork/network mounts leave these behind)
+**/.fuse_hidden*
+**/.fuse_probe
 mnemos/vault/*.db*
 mnemos/vault/hnsw*/
 mnemos/vault/MEMORY.md
