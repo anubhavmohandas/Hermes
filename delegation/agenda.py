@@ -27,15 +27,28 @@ What this actually does (honest scope — read before trusting it):
   exactly what the child is instructed to emit each run.
 
 Write policy: agenda children may Read/Grep/Glob/WebSearch and Write/Edit
-INSIDE their own workspace (delegation/agenda/<id>.workspace/ — the child's
-cwd; enforcement is cwd + prompt constraint, not a filesystem jail, and the
-platform's file_safety denylist still applies where hooks fire). Bash is
-granted ONLY if the human passed --allow-bash at add-time: the human gate is
-the add-time decision (Invariant #3 — unattended runs never self-escalate).
+INSIDE their own workspace — by default delegation/agenda/<id>.workspace/
+(the child's cwd; enforcement is cwd + prompt constraint, not a filesystem
+jail, and the platform's file_safety denylist still applies where hooks
+fire). Bash is granted ONLY if the human passed --allow-bash at add-time:
+the human gate is the add-time decision (Invariant #3 — unattended runs
+never self-escalate).
+
+External workspace (2026-07-06): --workspace <path> at add-time points the
+child's cwd at any directory instead of the internal default — e.g. a
+project folder that lives outside the hermes repo entirely. This exists
+because the default workspace assumes the goal is about HERMES itself;
+building something unrelated (a separate app/game/whatever) needs its own
+project folder, not a subfolder buried inside hermes/delegation/agenda/.
+Same caveat applies, more so: it is still cwd + prompt constraint, NOT a
+sandbox jail — an external workspace is a real directory on disk with
+whatever else lives there, so only point this at a folder you're fine
+having an unattended agent (with Bash, if you granted it) write into.
 
 CLI:
     python3 delegation/agenda.py add "<goal>" [--context "..."] [--allow-bash]
                                    [--child-timeout 1800] [--max-failures 5]
+                                   [--workspace /path/to/project]
     python3 delegation/agenda.py tick [--dry-run]     # cron calls this
     python3 delegation/agenda.py list | show <id> | status
     python3 delegation/agenda.py done <id> | abandon <id> | retry <id>
@@ -80,6 +93,14 @@ def _workspace(agenda_id: str) -> Path:
     return AGENDA_DIR / f"{agenda_id}.workspace"
 
 
+def _effective_workspace(agenda: dict) -> Path:
+    """The directory a child actually runs in: the external override if one
+    was set at add-time, else the default internal workspace. Centralizing
+    this is what lets tick() not care which case it is."""
+    external = agenda.get("external_workspace")
+    return Path(external) if external else _workspace(agenda["id"])
+
+
 def _load(agenda_id: str) -> dict:
     return json.loads(_path(agenda_id).read_text())
 
@@ -107,9 +128,12 @@ def _all() -> list:
 
 def add(goal: str, context: str = "", allow_bash: bool = False,
         child_timeout: int = DEFAULT_CHILD_TIMEOUT,
-        max_failures: int = DEFAULT_MAX_FAILURES) -> dict:
+        max_failures: int = DEFAULT_MAX_FAILURES, workspace: str = None) -> dict:
     # non-security digest — agenda id only (usedforsecurity=False; audit L4)
     agenda_id = "ag-" + hashlib.md5(f"{goal}|{time.time()}".encode(), usedforsecurity=False).hexdigest()[:8]
+    external_workspace = None
+    if workspace:
+        external_workspace = str(Path(workspace).expanduser().resolve())
     agenda = {
         "id": agenda_id,
         "goal": goal,
@@ -118,6 +142,7 @@ def add(goal: str, context: str = "", allow_bash: bool = False,
         "allow_bash": bool(allow_bash),
         "child_timeout": int(child_timeout),
         "max_failures": int(max_failures),
+        "external_workspace": external_workspace,  # None = default internal workspace
         "created_at": _now_iso(),
         "attempts": 0,
         "rate_limited_count": 0,
@@ -127,9 +152,11 @@ def add(goal: str, context: str = "", allow_bash: bool = False,
         "result": None,
         "progress": [],              # [{at, status, note}]
     }
-    _workspace(agenda_id).mkdir(parents=True, exist_ok=True)
+    ws = _effective_workspace(agenda)
+    ws.mkdir(parents=True, exist_ok=True)
     _save(agenda)
-    return {"added": True, "id": agenda_id, "workspace": str(_workspace(agenda_id)),
+    return {"added": True, "id": agenda_id, "workspace": str(ws),
+            "external_workspace": bool(external_workspace),
             "allow_bash": agenda["allow_bash"],
             "note": "run `install-cron` once so ticks fire unattended"}
 
@@ -227,15 +254,16 @@ def tick(runner=None, dry_run: bool = False) -> dict:
     allowed = AGENDA_CHILD_ALLOWED + (("Bash",) if agenda["allow_bash"] else ())
     argv = dispatch.build_child_command(build_resume_prompt(agenda),
                                         allowed_tools=allowed)
+    ws = _effective_workspace(agenda)
     if dry_run:
         return {"ticked": True, "attempted": agenda["id"], "dry_run": True,
-                "argv": argv, "cwd": str(_workspace(agenda["id"]))}
+                "argv": argv, "cwd": str(ws)}
     if not dispatch.claude_cli_available():
         return {"ticked": False, "attempted": agenda["id"],
                 "reason": "claude CLI not on PATH — agenda needs the CLI host"}
 
-    _workspace(agenda["id"]).mkdir(parents=True, exist_ok=True)
-    rc, output = runner(argv, str(_workspace(agenda["id"])), agenda["child_timeout"])
+    ws.mkdir(parents=True, exist_ok=True)
+    rc, output = runner(argv, str(ws), agenda["child_timeout"])
     status = dispatch.classify_output(rc, output)
 
     agenda["attempts"] += 1
@@ -322,6 +350,9 @@ def main():
                        help="grant Bash to this agenda's children (human add-time decision)")
     p_add.add_argument("--child-timeout", type=int, default=DEFAULT_CHILD_TIMEOUT)
     p_add.add_argument("--max-failures", type=int, default=DEFAULT_MAX_FAILURES)
+    p_add.add_argument("--workspace", default=None,
+                       help="point the child's cwd at an external project folder "
+                            "instead of the default internal delegation/agenda/<id>.workspace/")
 
     p_tick = sub.add_parser("tick")
     p_tick.add_argument("--dry-run", action="store_true")
@@ -338,7 +369,8 @@ def main():
     args = parser.parse_args()
     if args.command == "add":
         out = add(args.goal, context=args.context, allow_bash=args.allow_bash,
-                  child_timeout=args.child_timeout, max_failures=args.max_failures)
+                  child_timeout=args.child_timeout, max_failures=args.max_failures,
+                  workspace=args.workspace)
     elif args.command == "tick":
         out = tick(dry_run=args.dry_run)
     elif args.command == "list":
