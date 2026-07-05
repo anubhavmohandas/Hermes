@@ -205,6 +205,33 @@ class TestApproval(HermesTestCase):
             verdict, _ = approval.classify_command(cmd)
             self.assertEqual(verdict, "safe", cmd)
 
+    # --- Bash-curl metadata gap closed (2026-07-05) -----------------------
+    # Found live: url_safety.py's SSRF guard only runs on webfetch/fetch/
+    # websearch tool inputs. `curl http://169.254.169.254/` via Bash matched
+    # no pattern here and sailed through as "safe". Metadata/link-local
+    # targets must be blocked from a shell network tool exactly as hard as
+    # they are from WebFetch — no override, either path.
+    def test_bash_network_tool_to_metadata_blocked(self):
+        for cmd in (
+            "curl http://169.254.169.254/latest/meta-data/",
+            "curl -s http://metadata.google.internal/computeMetadata/v1/",
+            "wget http://169.254.170.2/v2/credentials",
+            "nc 169.254.169.254 80",
+            "curl http://100.100.100.200/latest/meta-data/",
+        ):
+            verdict, reason = approval.classify_command(cmd)
+            self.assertEqual(verdict, "block", f"{cmd!r} should be blocked: {reason}")
+
+    def test_bash_network_tool_to_ordinary_host_stays_safe(self):
+        # This fix must not overreach into ordinary internet or LAN fetches.
+        for cmd in (
+            "curl https://api.github.com/repos/anubhavmohandas/hermes",
+            "curl http://192.168.1.1/",   # private LAN, not metadata — out of scope for this fix
+            "wget https://example.com/file.zip",
+        ):
+            verdict, _ = approval.classify_command(cmd)
+            self.assertEqual(verdict, "safe", cmd)
+
 
 # ---------------------------------------------------------------------------
 # Layer 7 — redact (incl. the audit H1 regression)

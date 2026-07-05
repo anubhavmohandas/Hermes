@@ -17,6 +17,18 @@ BLOCK_PATTERNS = [
     (r"\bdd\s+if=.*\s+of=/dev/(sd|nvme|disk)", "dd to raw disk device — destroys disk"),
     (r"\bmkfs(\.\w+)?\s+/dev/", "mkfs on device — reformats disk"),
     (r">\s*/dev/(sd|nvme|disk)", "raw write to disk device"),
+    # Closed 2026-07-05 (audit finding): url_safety.py's SSRF guard only ran
+    # on webfetch/fetch/websearch tool inputs — a shell network tool (curl,
+    # wget, nc...) aimed at the cloud metadata endpoint or the wider
+    # 169.254.0.0/16 link-local range sailed through this module's denylist
+    # untouched, since it has no metadata-IP pattern at all. Mirrors the
+    # "never allowed, no override" stance METADATA_HOSTS/link-local get in
+    # url_safety.py — same severity, same targets, different entry point.
+    (r"\b(curl|wget|nc|ncat|telnet|ftp)\b[^\n]*\b"
+     r"(169\.254\.\d{1,3}\.\d{1,3}|::ffff:169\.254\.\d{1,3}\.\d{1,3}|"
+     r"fe80::[0-9a-fA-F:]*|metadata\.google\.internal|metadata\.azure\.com|"
+     r"100\.100\.100\.200)\b",
+     "network tool aimed at cloud metadata / link-local endpoint — SSRF"),
 ]
 
 APPROVAL_PATTERNS = [
