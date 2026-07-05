@@ -29,7 +29,9 @@
     "cli",
     "cowork"
   ],
-  "author": "Anubhav Mohandas",
+  "author": {
+    "name": "Anubhav Mohandas"
+  },
   "license": "private",
   "modules": {
     "active": [

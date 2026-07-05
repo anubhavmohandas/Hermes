@@ -1,6 +1,6 @@
 ---
 name: hermes-webdev
-description: HERMES web/mobile development sub-skill. Apollo routes here for website / landing page / web app / dashboard / frontend / mobile app requests (usually via skills/create intake first). Wires the installed design-intelligence skills (ui-ux-pro-max, frontend-design, theme-factory, webapp-testing) and integrations/webdev.py tokens into an actual build: design system → scaffold → sections → QA → deliver.
+description: "HERMES web/mobile development sub-skill. Apollo routes here for website / landing page / web app / dashboard / frontend / mobile app requests (usually via skills/create intake first). Wires the installed design-intelligence skills (ui-ux-pro-max, frontend-design, theme-factory, webapp-testing) and integrations/webdev.py tokens into an actual build: design system → scaffold → sections → QA → deliver."
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 user-invocable: false
 ---

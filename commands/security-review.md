@@ -1,6 +1,6 @@
 ---
 name: security-review
-description: /security-review — structured security review of the current branch's uncommitted + committed-vs-main diff. Three phases (context → comparative → vulnerability), 14 hard exclusions adopted verbatim from Anthropic's production security-review, and a confidence ≥8/10 filter so only real, high-confidence findings surface. Read-only: reads the diff via git, never edits.
+description: "/security-review — structured security review of the current branch's uncommitted + committed-vs-main diff. Three phases (context → comparative → vulnerability), 14 hard exclusions adopted verbatim from Anthropic's production security-review, and a confidence ≥8/10 filter so only real, high-confidence findings surface. Read-only: reads the diff via git, never edits."
 argument-hint: "[ staged | branch | <path> ]"
 allowed-tools: Bash(git diff:*), Bash(git status:*), Bash(git log:*), Read, Glob, Grep
 ---
