@@ -24,6 +24,7 @@ min_sessions, since a consolidation over zero new failures is pure waste).
 `should_run()` is that gate; `--force` (manual invocation) bypasses it, a
 scheduled tick never does.
 """
+import calendar
 import json
 import os
 import time
@@ -59,16 +60,35 @@ def acquire_lock():
     """Returns True if lock acquired, False if another run is genuinely
     in-flight. Stale locks (older than stale_lock_minutes) are reclaimed —
     this is what prevents a crashed prior run from permanently wedging
-    consolidation."""
+    consolidation.
+
+    Hardened 2026-07-05 (audit M2) to the same shape as cron's
+    acquire_tick_lock(): O_CREAT|O_EXCL is the atomicity primitive (two racing
+    consolidations cannot both create the file), and staleness is judged by the
+    lock file's MTIME, never by parsing its JSON body. The old version did
+    exists()+write_text (non-atomic — both runners could pass the check and
+    double-run) and json.loads(LOCK_PATH.read_text()) (which CRASHED on an
+    empty/half-written lock file, reproduced live in the audit). The JSON body
+    is observability only (whose pid holds it)."""
     _ensure_dirs()
-    config = json.loads(CONFIG_PATH.read_text())
+    config = {**DEFAULT_CONFIG, **json.loads(CONFIG_PATH.read_text())}
     if LOCK_PATH.exists():
-        lock_data = json.loads(LOCK_PATH.read_text())
-        age_minutes = (time.time() - lock_data["acquired_at"]) / 60.0
+        try:
+            age_minutes = (time.time() - LOCK_PATH.stat().st_mtime) / 60.0
+        except OSError:
+            return False  # vanished/unreadable mid-check — treat as active
         if age_minutes < config["stale_lock_minutes"]:
             return False  # genuinely locked, another run is active
-        # stale — reclaim
-    LOCK_PATH.write_text(json.dumps({"pid": os.getpid(), "acquired_at": time.time()}))
+        try:
+            LOCK_PATH.unlink()  # stale — two reclaimers race here; unlink wins once
+        except OSError:
+            return False
+    try:
+        fd = os.open(str(LOCK_PATH), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False  # lost the create race to another consolidation
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps({"pid": os.getpid(), "acquired_at": time.time()}))
     return True
 
 
@@ -106,7 +126,10 @@ def _last_run():
     epoch = None
     if ts:
         try:
-            epoch = time.mktime(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
+            # timegm treats the parsed struct_time as UTC (the 'Z' says it is).
+            # time.mktime would treat it as LOCAL time and skew every interval
+            # gate by the machine's UTC offset (audit L1, e.g. -5.5h on IST).
+            epoch = calendar.timegm(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
         except (ValueError, OverflowError):
             epoch = None
     prev_entries = (last.get("curator_consolidation") or {}).get("raw_entries_read", 0)

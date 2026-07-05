@@ -5,10 +5,24 @@
   "skill": "SKILL.md",
   "hooks": {
     "PreToolUse": [
-      "hooks/verify.sh"
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/verify.sh"
+          }
+        ]
+      }
     ],
     "SessionStart": [
-      "hooks/skills_scan.sh"
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/skills_scan.sh"
+          }
+        ]
+      }
     ]
   },
   "platform": [

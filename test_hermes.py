@@ -157,6 +157,27 @@ class TestUrlSafety(HermesTestCase):
         allowed, _ = url_safety.check_url("https://8.8.8.8/")
         self.assertTrue(allowed)
 
+    # --- M1 hardening regressions (2026-07-05) ---------------------------
+    def test_unresolvable_host_fails_closed(self):
+        # .invalid is reserved (RFC 2606) and never resolves — offline-safe.
+        allowed, reason = url_safety.check_url("https://nonexistent-host.invalid/")
+        self.assertFalse(allowed, "unresolvable host must fail CLOSED, not open")
+        self.assertIn("failing closed", reason.lower())
+
+    def test_ipv4_mapped_metadata_blocked(self):
+        # ::ffff:169.254.169.254 must not smuggle the metadata IP past v6 checks
+        allowed, _ = url_safety.check_url("http://[::ffff:169.254.169.254]/")
+        self.assertFalse(allowed)
+
+    def test_ipv6_loopback_literal_blocked(self):
+        allowed, _ = url_safety.check_url("http://[::1]:8080/")
+        self.assertFalse(allowed)
+
+    def test_resolve_returns_pinned_ip_for_literal(self):
+        allowed, _reason, ips = url_safety.resolve_and_validate("https://8.8.8.8/")
+        self.assertTrue(allowed)
+        self.assertEqual(ips, ["8.8.8.8"])  # caller pins the connection to this
+
 
 # ---------------------------------------------------------------------------
 # Layer 5 — approval (classify only; never auto-approves)
@@ -970,6 +991,30 @@ class TestDreamTimingGate(HermesTestCase):
         self.assertTrue(ok)
         self.assertIn("consolidating", reason)
 
+    # --- M2 lock hardening regressions (2026-07-05) ----------------------
+    def test_empty_lock_file_does_not_crash(self):
+        # Reproduces the live crash: a half-written/empty lock file used to
+        # raise JSONDecodeError. Now it must be handled, never crash.
+        mnemos_dream.LOCK_PATH.write_text("")
+        try:
+            got = mnemos_dream.acquire_lock()
+        except Exception as e:  # noqa: BLE001 — the whole point is "no exception"
+            self.fail(f"acquire_lock crashed on empty lock file: {e!r}")
+        self.assertFalse(got, "a fresh (non-stale) lock file must read as held")
+
+    def test_lock_is_atomic_no_double_acquire(self):
+        import os as _os, time as _t
+        mnemos_dream.LOCK_PATH.unlink(missing_ok=True)
+        self.assertTrue(mnemos_dream.acquire_lock(), "first acquire should win")
+        self.assertFalse(mnemos_dream.acquire_lock(), "second concurrent acquire must lose")
+        mnemos_dream.release_lock()
+        self.assertTrue(mnemos_dream.acquire_lock(), "after release it's free again")
+        # a stale lock (old mtime) is reclaimed, not honored forever
+        old = _t.time() - 9999
+        _os.utime(mnemos_dream.LOCK_PATH, (old, old))
+        self.assertTrue(mnemos_dream.acquire_lock(), "stale lock should be reclaimed")
+        mnemos_dream.release_lock()
+
     def test_scheduled_run_respects_gate_force_bypasses(self):
         import time as _t
         recent = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(_t.time() - 3600))
@@ -1203,6 +1248,22 @@ class TestCron(HermesTestCase):
         out = cron_scheduler.add_job("bad", "sudo rm -rf /tmp/x", "once")
         self.assertFalse(out["added"])
         self.assertIn("approval", out["reason"])
+
+    # --- M3 unattended allowlist regressions (2026-07-05) ----------------
+    def test_unattended_allowlist_blocks_denylist_safe_but_dangerous(self):
+        # A denylist-"safe" command that an allowlist must still refuse.
+        for cmd in ("find / -delete",
+                    "python3 -c \"import shutil\"",   # inline exec, no shell metachar
+                    "python3 /etc/evil.py",           # script outside HERMES_ROOT
+                    "cat ~/.ssh/id_rsa",              # not an allowlisted binary
+                    "echo hi > /tmp/x"):              # shell metacharacter
+            ok, reason = cron_scheduler.classify_unattended(cmd)
+            self.assertFalse(ok, f"{cmd!r} should be refused: {reason}")
+
+    def test_unattended_allowlist_permits_hermes_entrypoints(self):
+        for cmd in ("python3 delegation/agenda.py tick", "python3 brain.py", "echo done", "sleep 1"):
+            ok, reason = cron_scheduler.classify_unattended(cmd)
+            self.assertTrue(ok, f"{cmd!r} should be allowed: {reason}")
 
     def test_hard_interrupt_kills_overrunning_job(self):
         cron_scheduler.add_job("slow", "sleep 5", "once", timeout_seconds=1)

@@ -40,6 +40,8 @@ CLI:
 import argparse
 import json
 import os
+import re
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -58,6 +60,72 @@ import redact    # noqa: E402
 
 DEFAULT_TIMEOUT_SECONDS = 180   # the blueprint's 3-minute hard interrupt
 STALE_LOCK_MINUTES = 10         # a tick should take seconds; 10min = crashed
+
+# --- Unattended allowlist (audit M3) --------------------------------------
+# approval.classify_command is a DENYLIST — it blocks known-dangerous shapes
+# but can't enumerate every destructive command (a python one-liner that
+# shutil.rmtree's a tree scans "safe"). An unattended job runs with nobody to
+# ask, so on top of the denylist we require a POSITIVE allowlist AND we run the
+# command with shell=False (no substitution/redirection/globbing/chaining can
+# fire). A cron job must therefore be a single invocation of either:
+#   - a HERMES-internal python entrypoint (python3 <script-under-HERMES_ROOT>),
+#     with inline code (-c / -m) refused, or
+#   - one trivially-safe binary from ALLOWED_BINARIES.
+# There is deliberately no override — same stance as the rest of cron.
+ALLOWED_INTERPRETERS = {"python", "python3"}
+ALLOWED_BINARIES = {"echo", "true", "false", "sleep", "date"}
+# Shell metacharacters that only mean something under a shell. Their presence
+# signals intent the shell=False runner will NOT honor, so refuse rather than
+# run with surprising (and possibly unsafe) semantics.
+_SHELL_META_RE = re.compile(r"[;|&<>`$()]")
+
+
+def classify_unattended(command: str):
+    """Positive allowlist for cron/agenda execution, layered on top of the
+    denylist. Returns (ok: bool, reason: str)."""
+    verdict, reason = approval.classify_command(command)
+    if verdict != "safe":
+        return False, f"{verdict}: {reason}"
+    if not command or not command.strip():
+        return False, "empty command"
+    if _SHELL_META_RE.search(command):
+        return False, ("shell metacharacter in command — unattended jobs run a single "
+                       "command with shell=False (no pipes/redirects/substitution). "
+                       "Wrap any pipeline in a HERMES script and schedule that.")
+    try:
+        toks = shlex.split(command)
+    except ValueError as e:
+        return False, f"unparseable command ({e})"
+    if not toks:
+        return False, "empty command"
+    head = os.path.basename(toks[0])
+    if head in ALLOWED_INTERPRETERS:
+        script = None
+        for t in toks[1:]:
+            if t in ("-c", "-m"):
+                return False, (f"inline execution ('{head} {t} …') is not allowed in "
+                               f"unattended jobs — put the logic in a script under HERMES_ROOT")
+            if t.startswith("-"):
+                continue
+            script = t
+            break
+        if script is None:
+            return False, f"'{head}' invoked with no script argument"
+        p = Path(script)
+        resolved = p.resolve() if p.is_absolute() else (HERMES_ROOT / p).resolve()
+        try:
+            resolved.relative_to(HERMES_ROOT)
+        except ValueError:
+            return False, (f"script '{script}' resolves outside HERMES_ROOT — unattended "
+                           f"jobs run only HERMES's own scripts")
+        if not resolved.exists():
+            return False, f"script '{script}' does not exist under HERMES_ROOT"
+        return True, "allowlisted (hermes python entrypoint)"
+    if head in ALLOWED_BINARIES:
+        return True, "allowlisted (safe binary)"
+    return False, (f"'{head}' is not on the unattended allowlist — allowed: "
+                   f"{sorted(ALLOWED_INTERPRETERS)} running a script under HERMES_ROOT, "
+                   f"or one of {sorted(ALLOWED_BINARIES)}")
 
 
 # ---------------------------------------------------------------------------
@@ -188,11 +256,11 @@ def _record_to_mnemos(job_name: str, status: str, output_snippet: str):
 
 def add_job(name: str, command: str, schedule: str, interval_seconds: int = None,
             daily_time: str = None, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS):
-    verdict, reason = approval.classify_command(command)
-    if verdict != "safe":
+    ok, reason = classify_unattended(command)
+    if not ok:
         return {"added": False, "name": name,
-                "reason": f"refused at add-time ({verdict}): {reason} — "
-                          f"unattended jobs cannot carry approval-tier commands"}
+                "reason": f"refused at add-time: {reason} — "
+                          f"unattended jobs must be allowlisted (see classify_unattended)"}
     now = _now()
     if schedule == "interval":
         next_run = now + timedelta(seconds=interval_seconds)
@@ -256,13 +324,15 @@ def _run_job(row: dict) -> dict:
     """Execute one due job with the hard interrupt. Returns the run record."""
     # Run-time re-classification: the command may have been edited in the db
     # by something other than add_job, and rules may have tightened since add.
-    verdict, reason = approval.classify_command(row["command"])
-    if verdict != "safe":
+    ok, reason = classify_unattended(row["command"])
+    if not ok:
         return {"status": "refused", "output": reason}
     started = time.time()
     try:
+        # shell=False (audit M3): the command is a single allowlisted argv, so
+        # there is no shell to interpret substitution/redirection/globbing.
         proc = subprocess.run(
-            row["command"], shell=True, capture_output=True, text=True,
+            shlex.split(row["command"]), shell=False, capture_output=True, text=True,
             timeout=row["timeout_seconds"], cwd=str(HERMES_ROOT))
         status = "completed" if proc.returncode == 0 else f"failed(rc={proc.returncode})"
         output = (proc.stdout or proc.stderr or "").strip()

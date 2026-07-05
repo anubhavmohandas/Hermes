@@ -78,7 +78,10 @@ def _tokenize(text: str):
 def _hash_embed(text: str) -> np.ndarray:
     vec = np.zeros(DIM, dtype=np.float32)
     for tok in _tokenize(text):
-        h = int(hashlib.md5(tok.encode()).hexdigest(), 16)
+        # feature-hashing bucket function, NOT security — and the digest value
+        # MUST stay stable or every existing HNSW index becomes inconsistent,
+        # so this stays md5 with usedforsecurity=False (never swap the algo; L4)
+        h = int(hashlib.md5(tok.encode(), usedforsecurity=False).hexdigest(), 16)
         idx = h % DIM
         sign = 1.0 if (h // DIM) % 2 == 0 else -1.0
         vec[idx] += sign

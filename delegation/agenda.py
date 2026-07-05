@@ -108,7 +108,8 @@ def _all() -> list:
 def add(goal: str, context: str = "", allow_bash: bool = False,
         child_timeout: int = DEFAULT_CHILD_TIMEOUT,
         max_failures: int = DEFAULT_MAX_FAILURES) -> dict:
-    agenda_id = "ag-" + hashlib.md5(f"{goal}|{time.time()}".encode()).hexdigest()[:8]
+    # non-security digest — agenda id only (usedforsecurity=False; audit L4)
+    agenda_id = "ag-" + hashlib.md5(f"{goal}|{time.time()}".encode(), usedforsecurity=False).hexdigest()[:8]
     agenda = {
         "id": agenda_id,
         "goal": goal,

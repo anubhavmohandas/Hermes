@@ -43,7 +43,9 @@ TTL_SECONDS = 300
 
 
 def _token_path(command: str) -> Path:
-    digest = hashlib.md5(command.encode()).hexdigest()
+    # non-security digest — filename derived from the command string, not an
+    # integrity check (usedforsecurity=False; audit L4)
+    digest = hashlib.md5(command.encode(), usedforsecurity=False).hexdigest()
     return TOKEN_DIR / f"{digest}.json"
 
 

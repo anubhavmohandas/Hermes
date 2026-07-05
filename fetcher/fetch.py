@@ -35,14 +35,17 @@ CLI:
     python3 fetcher/fetch.py status
 """
 import argparse
+import http.client
 import json
 import os
+import socket
 import ssl
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from functools import partial
 from pathlib import Path
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent
@@ -80,20 +83,78 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+# --- DNS-rebind defense: connect to the exact IP url_safety vetted, instead
+# of letting urllib re-resolve the hostname (the re-resolution is the rebinding
+# window). The hostname is still used for the Host header, TLS SNI, and cert
+# verification — only the socket's connect target is pinned. (audit M1)
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, *args, pinned_ip=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pinned_ip = pinned_ip
+
+    def connect(self):
+        self.sock = socket.create_connection(
+            (self._pinned_ip, self.port), self.timeout, self.source_address)
+        if self._tunnel_host:
+            self._tunnel()
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, *args, pinned_ip=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pinned_ip = pinned_ip
+
+    def connect(self):
+        sock = socket.create_connection(
+            (self._pinned_ip, self.port), self.timeout, self.source_address)
+        if self._tunnel_host:
+            self.sock = sock
+            self._tunnel()
+            sock = self.sock
+        # server_hostname = self.host (the NAME) => SNI + cert check target the
+        # hostname even though the TCP connection went to the pinned IP.
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, pinned_ip):
+        super().__init__()
+        self._pinned_ip = pinned_ip
+
+    def http_open(self, req):
+        return self.do_open(partial(_PinnedHTTPConnection, pinned_ip=self._pinned_ip), req)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, context, pinned_ip):
+        super().__init__(context=context)
+        self._pinned_ip = pinned_ip
+
+    def https_open(self, req):
+        # Forward the verified SSL context (certifi-backed) — without it the
+        # pinned connection falls back to the empty system trust store and
+        # every HTTPS fetch fails verification. The context already carries
+        # check_hostname=True, so hostname verification stays on.
+        return self.do_open(partial(_PinnedHTTPSConnection, pinned_ip=self._pinned_ip),
+                            req, context=self._context)
+
+
 def fetch_url(url: str, max_bytes: int = MAX_BYTES):
     """GET one URL with SSRF checks on every hop. Returns a dict; never
     raises for policy blocks — the block reason IS the result."""
     hops = []
     current = url
     for _ in range(MAX_REDIRECTS + 1):
-        allowed, reason = url_safety.check_url(current)
+        allowed, reason, ips = url_safety.resolve_and_validate(current)
         if not allowed:
             return {"fetched": False, "url": current, "hops": hops,
                     "reason": f"SSRF layer: {reason}"}
+        pinned_ip = ips[0]
         req = urllib.request.Request(current, headers={"User-Agent": USER_AGENT},
                                      method="GET")
         opener = urllib.request.build_opener(
-            urllib.request.HTTPSHandler(context=_ssl_context()), _NoRedirect)
+            _PinnedHTTPHandler(pinned_ip),
+            _PinnedHTTPSHandler(_ssl_context(), pinned_ip), _NoRedirect)
         started = time.time()
         try:
             resp = opener.open(req, timeout=TIMEOUT_SECONDS)

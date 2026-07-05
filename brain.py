@@ -152,7 +152,9 @@ def log_failure(task: str, error_category: str, prevention_rule: str, failure_mo
     """
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     failure_mode = failure_mode or prevention_rule
-    dedup_key = hashlib.md5(f"{task}{failure_mode}".encode()).hexdigest()[:8]
+    # non-security digest — dedup identifier only (usedforsecurity=False keeps
+    # the value identical while satisfying scanners/FIPS; audit L4)
+    dedup_key = hashlib.md5(f"{task}{failure_mode}".encode(), usedforsecurity=False).hexdigest()[:8]
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "task": task,
