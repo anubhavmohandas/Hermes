@@ -1,0 +1,13 @@
+{
+  "name": "hermes",
+  "owner": {
+    "name": "Anubhav Mohandas"
+  },
+  "plugins": [
+    {
+      "name": "hermes",
+      "source": "./",
+      "description": "Hybrid Engine for Research, Memory, Execution & Synthesis."
+    }
+  ]
+}
