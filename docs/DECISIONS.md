@@ -1,7 +1,54 @@
-# HERMES — Deferred architecture decisions
+# HERMES — Architecture decisions
 
-Things flagged during builds/audits that need a real decision, not a quick
-patch. Each entry: what was found, what the options are, what's live today.
+Two kinds of entry. The **standing decision** at the top (the v1.0 subsystem
+freeze) is settled — it constrains everything below it. The numbered **D-items**
+are the opposite: things flagged during builds/audits that still need a real
+decision, not a quick patch. Each D-entry: what was found, the options, what's
+live today.
+
+---
+
+## Architecture freeze — the v1.0 subsystem set is final (STANDING, 2026-07-05)
+
+**The decision (settled, not deferred):** the subsystem set is frozen for
+v1.0 — Apollo, brain, meta (policy + security), Mnemos, Clio, Curator,
+ReasoningBank, Cron, Delegation, Fetcher, Connect, integrations. No new
+top-level folders and no new subsystems before the `v1.0.0` tag. A feature
+either fits inside one of these modules or it waits for a real user to force
+the change; new capabilities go to the post-1.0 backlog, they do not reopen
+the release list. This is the `V1_CHECKLIST.md` ground rule, recorded here
+with the date and the reasoning so it is an actual commitment, not a note.
+
+**Why freeze now, rather than keep the option open:**
+1. The surface is already large for a project with zero external users — 12
+   subsystems, ~5.8k production LOC. More surface today is more to *harden*
+   before a first user, not more value.
+2. Scope keeps getting re-litigated (see D2: which blueprint is
+   authoritative). Freezing the set is what lets an audit stop reopening
+   "should there be a Browser / Agents / Planning module" every time — those
+   SVG-era modules are explicitly out until a user forces one in.
+3. Everything left on the release list (`V1_CHECKLIST` §2–§7) is hardening —
+   contracts, dead-code, fresh-install, dogfood, demo. None of it needs a new
+   subsystem.
+4. Adding subsystems before one external person has run it is building on
+   unvalidated assumptions. The checklist's own closing line — "reality
+   decides the roadmap" — only works if the roadmap isn't pre-committed to
+   surface nobody has asked for yet.
+
+**Enforcement is real, not aspirational — concrete evidence, same day:** the
+`meta/policy.py` extraction (§1 inverted-imports fix, 2026-07-05) added a
+*file inside the existing `meta/` subsystem* — it did not stand up a new
+top-level thing. The two inverted imports were fixed by moving shared policy
+*down* into `meta/`, a peer to the existing `meta/security/` package, not by
+creating a subsystem. That is the freeze working exactly as intended:
+structural change is allowed, but it stays inside the frozen set. The freeze
+is at folder/subsystem granularity, not file granularity — new files within a
+frozen module are fine; new modules are not.
+
+**What this does NOT freeze:** internal refactors (like today's), bug fixes,
+test and doc hardening, and the still-open *content* calls in D2 (blueprint
+authority) and D3 (third-party skills). Those decide what goes inside the
+existing modules; none of them adds a subsystem.
 
 ---
 

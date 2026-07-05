@@ -22,7 +22,11 @@ except two inverted imports (listed below).
 - [x] Extraction corpus fully dispositioned — 58/58 rows in
       `EXTRACTION_COVERAGE.md` (kept local, untracked since 2026-07-04),
       one deferred gap (graphify) documented
-- [ ] Architecture freeze recorded in `DECISIONS.md` (date + rationale)
+- [x] Architecture freeze recorded in `DECISIONS.md` (date + rationale) —
+      2026-07-05, as a STANDING decision at the top of `DECISIONS.md`.
+      `meta/policy.py` landing *inside* `meta/` (a file, not a new subsystem)
+      is cited there as the concrete evidence the freeze is enforceable, not
+      aspirational.
 - [x] Fix the only two inverted imports — subsystems reaching up into the
       orchestrator for policy calls:
       - `integrations/notebooklm.py` (`brain.check_sensitivity`)
@@ -73,8 +77,9 @@ except two inverted imports (listed below).
 - [x] README claims match reality — it said "123 tests green" (then briefly
       "156") while the suite runs 144; counts, stage table, and module list
       synced 2026-07-04 (commit d175420, pushed).
-- [ ] `docs/` current: DECISIONS.md has the freeze entry,
-      EXTRACTION_COVERAGE.md rows (local, untracked) still true at tag time
+- [ ] `docs/` current: DECISIONS.md has the freeze entry — **done 2026-07-05**;
+      EXTRACTION_COVERAGE.md rows (local, untracked) still true at tag time —
+      *re-check at tag; box stays open until that half is verified too*
 
 ## 5 — Installation from scratch
 
