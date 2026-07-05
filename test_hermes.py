@@ -33,6 +33,7 @@ for sub in ("", "meta", "meta/security", "mnemos", "reasoningbank", "curator",
 # sys.path, so it can't shadow mnemos/store.py (both are named `store`).
 
 import brain
+from meta import policy  # policy core; brain re-exports it. Patch/read HERE for log-path redirection.
 import file_safety
 import path_security
 import url_safety
@@ -522,15 +523,18 @@ class TestBrainRouting(HermesTestCase):
 
 class TestBrainLogging(HermesTestCase):
     def setUp(self):
+        # log_request/log_failure read their paths from meta.policy's globals
+        # (brain.log_request is a re-export of the same function), so redirect
+        # there — patching brain's re-exported aliases would not reach them.
         d = self.tmpdir()
-        self.patch_attrs(brain, LOG_DIR=d,
+        self.patch_attrs(policy, LOG_DIR=d,
                          REASONING_LOG=d / "reasoning_seed.jsonl",
                          REFLEXION_LOG=d / "reflexion_seed.json")
 
     def test_log_request_appends_jsonl(self):
         brain.log_request("research", 1, "success", True, tokens=100, latency_ms=250)
         brain.log_request("bulk", 2)
-        lines = brain.REASONING_LOG.read_text().strip().splitlines()
+        lines = policy.REASONING_LOG.read_text().strip().splitlines()
         self.assertEqual(len(lines), 2)
         first = json.loads(lines[0])
         self.assertEqual(first["task_type"], "research")

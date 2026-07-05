@@ -28,7 +28,7 @@ from pathlib import Path
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERMES_ROOT))
-import brain  # noqa: E402
+from meta import policy  # noqa: E402  (shared policy leaf, not the orchestrator)
 
 
 def online_enabled() -> bool:
@@ -70,7 +70,7 @@ def prepare(paths):
         sources[path.name] = path.read_text(errors="replace")
 
     combined = "\n".join(sources.values())
-    if brain.check_sensitivity(combined):
+    if policy.check_sensitivity(combined):
         # Sensitive material: local path only, online refused outright.
         result = _local_synthesis(sources)
         result["online_refused"] = "sources matched sensitivity rules — online " \

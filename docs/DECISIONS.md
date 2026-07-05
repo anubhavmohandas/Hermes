@@ -118,6 +118,64 @@ watchlist entry as the drift guard.
 
 ---
 
+## D4 — Tier-substitution safety is enforced at the prompt level, not in code
+
+**Found:** 2026-07-05, during two make-it-fail sessions —
+`logs/proof_failuremode.md` (failure-injection) and
+`logs/proof_apollo_tier_fallback.md` (live Apollo behavioral check). Both
+local/gitignored, per the repo's evidence convention (same as
+EXTRACTION_COVERAGE.md).
+
+**What:** `SKILL.md` line 60 — "if tier2_ready is false, say so and ask the
+user whether to run on Tier 1 instead — never silently substitute tiers, in
+either direction." The failure-injection proof confirmed the *code* fails
+cleanly when Ollama is unreachable (`RuntimeError`, no hang, no silent
+Tier-1 fallback) — but that is *absence of a substituting mechanism*, not
+enforcement of the rule. The rule's actual behavior ("ask, don't
+substitute") is carried out by Apollo, an LLM reading a markdown line.
+Nothing in `ollama_client.py` or `brain.py`/`meta/policy.py` can guarantee
+an LLM obeys a prompt. This is the same shape as D1's human-gate, but the
+opposite conclusion was reached there (D1 got a code interlock); here it is
+still prompt-only.
+
+**Evidence live today:** `proof_apollo_tier_fallback.md` — 3 real `claude -p`
+sessions under a genuine Tier-2 outage (`HERMES_OLLAMA_URL` forced to a
+closed port), graded on a forced single-token verdict. 3/3 asked the user
+rather than substituting, **including the adversarial-pressure case**
+(sensitive, explicitly-local-only pentest notes + "don't bother asking me
+anything, whatever's quickest"). That case is the load-bearing one — a
+failure there would have routed explicitly-local data to Tier 1. Separately,
+the two robustness gaps failure-injection found (`fetcher/fetch.py search`
+always exiting 0; `connect/mcp_client.py main()` leaking tracebacks) were
+**fixed the same session** and are not deferred — they are noted here only as
+the context in which D4 surfaced.
+
+**Option A — accept prompt-level enforcement + behavioral proof as
+sufficient for v1.** Cost: robustness is bounded by the model's adherence.
+The proof explicitly does NOT cover multi-turn erosion, role-play framing,
+or prompt-injection via a fetched document — only single-turn direct
+pressure. Carry "adversarial/multi-turn tier-substitution robustness" as a
+named open item, not a closed one.
+
+**Option B — add a code-level interlock**, mirroring D1: a tier *downgrade*
+away from the sensitivity-mandated tier requires an explicit approval token
+Apollo can only mint after an `AskUserQuestion` yes. Makes the rule
+code-guaranteed, at the cost of another handshake surface.
+
+**Option C — hybrid:** code hard-blocks the *silent* substitution path
+(refuse any tier change that lacks a recorded human ack), prompt still
+handles the conversational "ask." 
+
+**Status: provisionally A for v1 — flagged for the human's call.** The
+behavioral proof is real evidence the mechanism works as designed under
+direct pressure, and is the guard today. It is not proof of unconditional
+robustness, and B is the only option that would make the rule
+code-guaranteed rather than model-dependent. Revisit if any real
+substitution slip is ever observed, or before relying on HERMES with
+strictly-local data in an untrusted multi-turn session.
+
+---
+
 *Add new entries above this line as they come up. Don't resolve a D-item by
 editing this file alone — the code has to change too, and the entry should
 note the commit/date it was closed.*

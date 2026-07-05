@@ -12,7 +12,7 @@ Each check drives the layer through its real entry point with a known-hostile
 input and confirms the block. A green audit means every layer still refuses
 what it is supposed to refuse — today, not just on the day someone last read
 the code. Findings are returned structured (layer, check, ok, detail) and, on
---record, a one-line summary is logged to Clio via brain.log_request so the
+--record, a one-line summary is logged to Clio via policy.log_request so the
 audit baseline is attributable over time.
 
 CLI:
@@ -35,7 +35,7 @@ import approval_token
 import redact
 import gate
 import skills_guard
-import brain
+from meta import policy  # shared policy leaf, not the orchestrator (V1 §1)
 
 
 def _check(layer, name, ok, detail):
@@ -80,12 +80,12 @@ def run_audit():
     checks.append(_check(5, "D1 token allows once then re-blocks", a1 and not a2,
                          f"first={a1} second={a2}"))
 
-    # Layer 6 — brain: Chinese-API model excluded via api.
-    allowed, reason = brain.check_model_allowed(1, "deepseek-chat", via="api")
-    checks.append(_check(6, "brain excludes Chinese API model", not allowed, reason[:80]))
+    # Layer 6 — policy: Chinese-API model excluded via api.
+    allowed, reason = policy.check_model_allowed(1, "deepseek-chat", via="api")
+    checks.append(_check(6, "policy excludes Chinese API model", not allowed, reason[:80]))
 
-    # Layer 6 — brain: sensitive task never reaches Tier 3.
-    tier = brain.get_tier(brain.check_sensitivity("analyze this CVE-2025-9999 exploit"), via="api")
+    # Layer 6 — policy: sensitive task never reaches Tier 3.
+    tier = policy.get_tier(policy.check_sensitivity("analyze this CVE-2025-9999 exploit"), via="api")
     checks.append(_check(6, "sensitive routes to Tier 1 not 3", tier == 1, f"tier={tier}"))
 
     # Layer 7 — redact: real Anthropic key shape scrubbed.
@@ -108,8 +108,8 @@ def run_audit():
 def main():
     result = run_audit()
     if "--record" in sys.argv[1:] and result["green"]:
-        brain.log_request(task_type="security-audit", tier=1, outcome="success",
-                          success=True, tokens=0, latency_ms=0)
+        policy.log_request(task_type="security-audit", tier=1, outcome="success",
+                           success=True, tokens=0, latency_ms=0)
         result["recorded_to_clio"] = True
     print(json.dumps(result, indent=2))
     sys.exit(0 if result["green"] else 1)
