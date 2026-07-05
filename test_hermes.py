@@ -232,6 +232,31 @@ class TestApproval(HermesTestCase):
             verdict, _ = approval.classify_command(cmd)
             self.assertEqual(verdict, "safe", cmd)
 
+    # --- hardening follow-up (2026-07-05, same day, live-test driven) -----
+    # A live probe against the first version of this fix found two bypasses:
+    # order (target-before-tool) and decimal-encoded IPs. Both closed in
+    # _bash_network_ssrf_check; these regressions pin that down.
+    def test_bash_ssrf_check_is_order_independent(self):
+        # The metadata literal appears BEFORE the tool name in the string —
+        # a naive tool-then-target regex misses this; ours must not.
+        verdict, reason = approval.classify_command("IP=169.254.169.254; curl $IP")
+        self.assertEqual(verdict, "block", reason)
+
+    def test_bash_ssrf_check_catches_decimal_encoded_ip(self):
+        # 2852039166 == 169.254.169.254 as a 32-bit integer. curl accepts
+        # http://<decimal>/ and resolves it as that IP.
+        for cmd in ("curl http://2852039166/", "nc 2852039166 80"):
+            verdict, reason = approval.classify_command(cmd)
+            self.assertEqual(verdict, "block", f"{cmd!r}: {reason}")
+
+    def test_bash_ssrf_check_decimal_path_does_not_false_positive(self):
+        # An ordinary large number (e.g. a unix timestamp in a URL path)
+        # must not be misread as an encoded IP just because it's 7-10 digits.
+        verdict, _ = approval.classify_command(
+            "curl https://api.example.com/report/1720137600"
+        )
+        self.assertEqual(verdict, "safe")
+
 
 # ---------------------------------------------------------------------------
 # Layer 7 — redact (incl. the audit H1 regression)
