@@ -93,7 +93,8 @@ def _cmd_check(args):
 
 def _cmd_log(args):
     entry = log_request(args.task_type, args.tier, args.outcome,
-                         args.success, args.tokens, args.latency)
+                         args.success, args.tokens, args.latency,
+                         model=args.model, decision=args.decision)
     print(json.dumps(entry))
     sys.exit(0)
 
@@ -121,6 +122,9 @@ def main():
     p_log.add_argument("--success", type=lambda s: s.lower() == "true", default=None)
     p_log.add_argument("--tokens", type=int, default=0)
     p_log.add_argument("--latency", type=int, default=0)
+    p_log.add_argument("--model", default=None, help="model that served the request (trace field)")
+    p_log.add_argument("--decision", default=None,
+                       help="one-line routing decision, e.g. 'sensitive->Tier1' (trace field)")
     p_log.set_defaults(func=_cmd_log)
 
     p_fail = sub.add_parser("log-failure")

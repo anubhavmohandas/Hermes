@@ -12,8 +12,14 @@ HNSW semantic search and 3-tier hybrid retrieval land in Phase 3B (Mnemos v2).
 import random
 import re
 import sqlite3
+import sys
 import time
 from pathlib import Path
+
+_HERMES_ROOT = Path(__file__).resolve().parent.parent
+if str(_HERMES_ROOT) not in sys.path:
+    sys.path.insert(0, str(_HERMES_ROOT))
+from meta.contracts import MemoryEntry  # noqa: E402  boundary contract (V1_CHECKLIST §2)
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "vault" / "mnemos.db"
 MAX_RETRIES = 15
@@ -187,7 +193,14 @@ def _execute_with_retry(db_path: Path, fn):
             raise
         finally:
             conn.close()
-    raise RuntimeError(f"write failed after {MAX_RETRIES} retries: {last_err}")
+    raise RuntimeError(
+        f"mnemos/store.py: vault write failed after {MAX_RETRIES} retries with "
+        f"backoff ({last_err}). The vault is single-writer — this means another "
+        f"process held the write lock the whole time. What to do: close any other "
+        f"running HERMES process (a second CLI session, a stuck Dream/Curator job) "
+        f"that may be writing to {db_path}, then retry. If nothing else is running, "
+        f"a crashed process may have left a stale lock — remove {db_path}-wal / "
+        f"{db_path}-shm and retry.")
 
 
 def write_message(session_id: str, role: str, content: str, metadata: str = "{}",
@@ -258,6 +271,17 @@ def search_messages(query: str, limit: int = 10, db_path: Path = DEFAULT_DB_PATH
         ]
     finally:
         conn.close()
+
+
+def search(query: str, limit: int = 10, db_path: Path = DEFAULT_DB_PATH):
+    """Public contract (V1_CHECKLIST §2): mnemos.search(query) -> list[MemoryEntry].
+
+    Thin, pinned wrapper over search_messages(). The internal (FTS5 query,
+    ranking, the row->dict mapping) can change; callers depend only on getting
+    a list[MemoryEntry] back. search_messages() stays for the CLI and existing
+    dict-based tests.
+    """
+    return [MemoryEntry.from_dict(r) for r in search_messages(query, limit=limit, db_path=db_path)]
 
 
 def get_session(session_id: str, db_path: Path = DEFAULT_DB_PATH):

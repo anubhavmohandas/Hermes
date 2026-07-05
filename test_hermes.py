@@ -34,6 +34,7 @@ for sub in ("", "meta", "meta/security", "mnemos", "reasoningbank", "curator",
 
 import brain
 from meta import policy  # policy core; brain re-exports it. Patch/read HERE for log-path redirection.
+from meta import contracts  # V1_CHECKLIST §2 boundary contracts
 import file_safety
 import path_security
 import url_safety
@@ -66,6 +67,7 @@ import turbo_memory
 import webdev
 import notebooklm
 import composio
+from clio import tracker as clio_tracker  # execution-trace aggregation (V1_CHECKLIST §3)
 
 
 class HermesTestCase(unittest.TestCase):
@@ -1545,6 +1547,17 @@ class TestConnectPKCE(HermesTestCase):
         self.assertIn("code_challenge_method=S256", url)
         self.assertIn("state=", url)  # CSRF param always present
 
+    def test_token_request_body_is_the_code_exchange_step(self):
+        # Symmetric with authorization_url: the token-exchange half of the PKCE
+        # flow. Pins the payload so the code_verifier is carried and no secret
+        # is required (public client, RFC 7636).
+        req = oauth_pkce.token_request_body("https://a/token", "cid", "https://cb",
+                                            code="AUTH_CODE", verifier="VERIFIER")
+        self.assertEqual(req["url"], "https://a/token")
+        self.assertEqual(req["body"]["grant_type"], "authorization_code")
+        self.assertEqual(req["body"]["code_verifier"], "VERIFIER")
+        self.assertNotIn("client_secret", req["body"])  # public client, PKCE not a secret
+
     def test_mcp_client_refuses_command_that_needs_approval(self):
         from connect import mcp_client
         with self.assertRaises(PermissionError):
@@ -1723,6 +1736,139 @@ class TestIntegrations(HermesTestCase):
         self.assertIn("0001_init", first["applied"])
         second = db.migrate()  # idempotent
         self.assertTrue(second["already_current"])
+
+
+# ---------------------------------------------------------------------------
+# V1_CHECKLIST §3 — execution-trace completeness. A trace line must answer
+# what decision / which tier / which model / how long, and Clio must be able
+# to slice by any of them.
+# ---------------------------------------------------------------------------
+class TestExecutionTrace(HermesTestCase):
+    def setUp(self):
+        d = self.tmpdir()
+        self.patch_attrs(policy, LOG_DIR=d,
+                         REASONING_LOG=d / "reasoning_seed.jsonl",
+                         REFLEXION_LOG=d / "reflexion_seed.json")
+
+    def test_trace_line_carries_model_and_decision(self):
+        entry = brain.log_request("research", 1, "success", True, tokens=100,
+                                  latency_ms=250, model="claude-opus-4-8",
+                                  decision="sensitive->Tier1")
+        for field in ("task_type", "tier", "model", "decision", "latency_ms"):
+            self.assertIn(field, entry, f"trace must answer '{field}'")
+        self.assertEqual(entry["model"], "claude-opus-4-8")
+        self.assertEqual(entry["decision"], "sensitive->Tier1")
+
+    def test_pre_section3_call_site_still_works(self):
+        # old positional call, no model/decision — schema stays fixed (null)
+        entry = brain.log_request("bulk", 2)
+        self.assertIsNone(entry["model"])
+        self.assertIsNone(entry["decision"])
+
+    def test_clio_can_slice_trace_by_model(self):
+        entries = [
+            {"tier": 1, "model": "claude-opus-4-8", "tokens": 1000, "latency_ms": 200, "success": True},
+            {"tier": 1, "model": "claude-opus-4-8", "tokens": 500, "latency_ms": 100, "success": True},
+            {"tier": 2, "model": "llama3", "tokens": 4000, "latency_ms": 50, "success": True},
+        ]
+        by_model = clio_tracker.aggregate(entries, group_by="model")
+        self.assertEqual(by_model["claude-opus-4-8"]["count"], 2)
+        self.assertEqual(by_model["claude-opus-4-8"]["tokens"], 1500)
+        # cost comes from each entry's own tier even when grouping by model:
+        # Tier 1 rate 0.006/1k * 1.5k = 0.009; Tier 2 (local) is free.
+        self.assertAlmostEqual(by_model["claude-opus-4-8"]["est_cost_usd"], 0.009, places=4)
+        self.assertEqual(by_model["llama3"]["est_cost_usd"], 0.0)
+
+    def test_clio_coerces_missing_group_key_to_unknown(self):
+        by_model = clio_tracker.aggregate([{"tier": 1, "tokens": 10}], group_by="model")
+        self.assertIn("unknown", by_model)
+
+
+# ---------------------------------------------------------------------------
+# V1_CHECKLIST §2 — Domain models & contracts. These pin the three PUBLIC
+# interfaces so internals can be refactored without breaking callers. If a
+# refactor changes the shape a caller sees, one of these fails — which is the
+# whole point of writing them down as executable contracts.
+# ---------------------------------------------------------------------------
+class TestContracts(HermesTestCase):
+    # --- the five boundary dataclasses exist and round-trip ----------------
+    def test_five_boundary_dataclasses_exist(self):
+        for name in ("Task", "DelegationPlan", "SecurityDecision",
+                     "MemoryEntry", "ExecutionResult"):
+            self.assertTrue(hasattr(contracts, name), f"missing boundary type {name}")
+
+    def test_contracts_are_a_pure_leaf(self):
+        # The contract module must not import any HERMES subsystem — that's what
+        # keeps it circular-import-proof and dependable by everyone downward.
+        src = (ROOT / "meta" / "contracts.py").read_text()
+        for banned in ("import brain", "import gate", "import store",
+                       "from meta.policy", "import dispatch"):
+            self.assertNotIn(banned, src,
+                             f"contracts.py must stay a leaf; found '{banned}'")
+
+    def test_dataclass_dict_round_trips(self):
+        t = contracts.Task(prompt="do x", async_profile=True, timeout_seconds=42, model="m")
+        self.assertEqual(contracts.Task.from_dict(t.to_dict()), t)
+        r = contracts.ExecutionResult(status="completed", output="ok", elapsed_ms=5, prompt="p")
+        self.assertEqual(contracts.ExecutionResult.from_dict(r.to_dict()), r)
+        self.assertTrue(r.ok)
+        self.assertFalse(contracts.ExecutionResult(status="failed(rc=1)").ok)
+
+    # --- contract 1: gate.check(request) -> SecurityDecision ---------------
+    def test_gate_check_returns_security_decision(self):
+        blocked = gate.check({"tool_name": "write",
+                              "tool_input": {"file_path": "~/.ssh/id_rsa"}})
+        self.assertIsInstance(blocked, contracts.SecurityDecision)
+        self.assertFalse(blocked.allowed)
+        self.assertEqual(blocked.layer, "file_safety")
+
+        allowed = gate.check({"tool_name": "read",
+                              "tool_input": {"file_path": "notes.txt"}})
+        self.assertIsInstance(allowed, contracts.SecurityDecision)
+        self.assertTrue(allowed.allowed)
+        self.assertEqual(allowed.layer, "none")
+
+    def test_gate_check_agrees_with_run_gate(self):
+        # The pinned wrapper must not diverge from the tuple it wraps.
+        req = {"tool_name": "bash", "tool_input": {"command": "sudo rm -rf /"}}
+        allowed, layer, reason = gate.run_gate(req["tool_name"], req["tool_input"])
+        d = gate.check(req)
+        self.assertEqual((d.allowed, d.layer, d.reason), (allowed, layer, reason))
+
+    # --- contract 2: mnemos.search(query) -> list[MemoryEntry] -------------
+    def test_mnemos_search_returns_memory_entries(self):
+        db = self.tmpdir() / "m.db"
+        store.init_db(db)
+        store.write_message("s1", "user", "the quick brown fox", db_path=db)
+        store.write_message("s1", "user", "unrelated content here", db_path=db)
+        hits = store.search("quick brown", db_path=db)
+        self.assertTrue(hits)
+        self.assertTrue(all(isinstance(h, contracts.MemoryEntry) for h in hits))
+        self.assertEqual(hits[0].content, "the quick brown fox")
+        self.assertIn(hits[0].memory_type, store.MEMORY_TYPES)
+
+    # --- contract 3: dispatch(task) -> ExecutionResult ---------------------
+    def test_dispatch_task_returns_execution_result(self):
+        res = delegation_dispatch.dispatch_task(
+            contracts.Task(prompt="hello"), dry_run=True)
+        self.assertIsInstance(res, contracts.ExecutionResult)
+        self.assertEqual(res.status, "dry_run")
+        self.assertIn("claude", res.output)  # the exact child argv, unspawned
+
+    def test_build_plan_surfaces_locked_cap_and_queues(self):
+        plan = delegation_dispatch.build_plan(["a", "b", "c", "d"])
+        self.assertIsInstance(plan, contracts.DelegationPlan)
+        # more tasks than the cap queue, not rejected
+        self.assertEqual(len(plan.tasks), 4)
+        self.assertEqual(plan.max_concurrent, delegation_dispatch.MAX_CHILDREN)
+
+    def test_dispatch_plan_returns_execution_results_in_order(self):
+        plan = delegation_dispatch.build_plan(["one", "two"])
+        results = delegation_dispatch.dispatch_plan(plan, dry_run=True)
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(isinstance(r, contracts.ExecutionResult) for r in results))
+        self.assertEqual(results[0].prompt, "one")
+        self.assertEqual(results[1].prompt, "two")
 
 
 if __name__ == "__main__":

@@ -123,14 +123,24 @@ def check_model_allowed(tier: int, model: str, via: str = "api"):
 
 
 def log_request(task_type: str, tier: int, outcome: str = "pending",
-                 success: bool = None, tokens: int = 0, latency_ms: int = 0):
+                 success: bool = None, tokens: int = 0, latency_ms: int = 0,
+                 model: str = None, decision: str = None):
     """Append one line to logs/reasoning_seed.jsonl. Raw capture — ReasoningBank
-    (Phase 3B) indexes this into HNSW later. Zero processing here."""
+    (Phase 3B) indexes this into HNSW later. Zero processing here.
+
+    Execution-trace fields (V1_CHECKLIST §3): the line answers *what decision*
+    (`decision`, e.g. 'sensitive->Tier1'), *which tier* (`tier`), *which model*
+    (`model`), and *how long* (`latency_ms`). `model`/`decision` are optional
+    and default to None so pre-§3 call sites and their tests are unaffected —
+    the schema stays a fixed set of keys, which is what makes it a stable trace
+    for Clio to aggregate over."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "task_type": task_type,
         "tier": tier,
+        "model": model,
+        "decision": decision,
         "outcome": outcome,
         "success": success,
         "tokens": tokens,

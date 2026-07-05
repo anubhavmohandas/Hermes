@@ -22,6 +22,9 @@ import tirith_security
 import redact
 
 HERMES_ROOT = Path(__file__).resolve().parents[2]
+# Boundary contract (V1_CHECKLIST §2) lives in the frozen meta/ kernel.
+sys.path.insert(0, str(HERMES_ROOT))
+from meta.contracts import SecurityDecision  # noqa: E402
 
 # Interpreters whose first path argument is what actually gets executed.
 _INTERPRETERS = {"bash", "sh", "zsh", "dash", "python", "python3", "node", "ruby", "perl", "source"}
@@ -181,6 +184,19 @@ def run_gate(tool_name: str, tool_input: dict):
             return False, "tirith_security", f"flagged: {findings}"
 
     return True, "none", "ALLOWED"
+
+
+def check(request: dict) -> SecurityDecision:
+    """Public contract (V1_CHECKLIST §2): gate.check(request) -> SecurityDecision.
+
+    `request` is the same JSON the hook feeds on stdin:
+    {"tool_name": str, "tool_input": dict}. This is a thin, pinned wrapper over
+    run_gate() — internals (the 7 layers, their order, the tuple they pass
+    around) can be refactored freely as long as this shape holds. run_gate()
+    stays for the hook's tuple-unpacking call sites and existing tests.
+    """
+    verdict = run_gate(request.get("tool_name"), request.get("tool_input", {}) or {})
+    return SecurityDecision.from_tuple(verdict)
 
 
 if __name__ == "__main__":

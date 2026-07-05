@@ -209,4 +209,4 @@ If Bash isn't available or is restricted:
 | Opt-in breadth (each with a fallback) | integrations/ | 5 | Active on demand: db, media, caveman, kanban, turbo-memory, notebooklm, composio (webdev promoted to skills/webdev/) |
 | NYX Tier 3 integration | — | 6 | Out of scope — NYX not built yet |
 
-Apollo knows all of these exist. Stages 0–5 are built and unit-tested (157 tests green, environment-conditional skips if hnswlib/numpy aren't installed); Stage 0 is proven end-to-end on real disk, the rest at component level. NYX (Stage 6) is deliberately out of scope until NYX itself exists.
+Apollo knows all of these exist. Stages 0–5 are built and unit-tested (174 tests green — 172 pass + 2 environment-conditional skips by design if hnswlib/numpy aren't installed); Stage 0 is proven end-to-end on real disk, the rest at component level. NYX (Stage 6) is deliberately out of scope until NYX itself exists.

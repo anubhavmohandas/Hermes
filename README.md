@@ -10,7 +10,7 @@ Built by [Anubhav Mohandas](https://github.com/anubhavmohandas), grounded in 1,4
 
 ## Status
 
-**Stages 0–5 are built and unit-tested — 157 tests green (environment-conditional skips if `hnswlib`/`numpy` aren't installed).** Stage 0 is proven end-to-end on real disk: one genuine request has flowed through the full loop — route → cross-process memory → reward retrieval → human-gated Curator approval (evidence kept locally in `logs/proof_gate0.md` — audit records stay out of the repo). The `PreToolUse` security gate (`hooks/verify.sh`) is installed and live-verified as of 2026-07-05 — confirmed via `/hooks` in a real Claude Code session (matcher `(all)`, plugin `hermes@hermes`) and via real blocked tool calls (`sudo`, SSRF to the cloud metadata IP via `curl`/`nc`, decimal-encoded and variable-obfuscated IP forms) each producing a matching, timestamp-correlated entry in `logs/reflexion_seed.json` — not just a unit test. Stages 1–5 beyond the gate itself are proven at the component level; the Stage 3 external-integration paths (Ollama, Tavily search, MCP stdio) were exercised live on real infrastructure 2026-07-05 — real Ollama daemon, real Tavily key, real `@modelcontextprotocol/server-filesystem` handshake (evidence kept locally in `logs/proof_gate4.md`). Autonomy paths (Cron/Delegation under real unattended load) remain proven at the component level only. NYX (Stage 6) is deliberately out of scope: NYX doesn't exist yet.
+**Stages 0–5 are built and unit-tested — 174 tests green (172 pass + 2 environment-conditional skips by design if `hnswlib`/`numpy` aren't installed).** Stage 0 is proven end-to-end on real disk: one genuine request has flowed through the full loop — route → cross-process memory → reward retrieval → human-gated Curator approval (evidence kept locally in `logs/proof_gate0.md` — audit records stay out of the repo). The `PreToolUse` security gate (`hooks/verify.sh`) is installed and live-verified as of 2026-07-05 — confirmed via `/hooks` in a real Claude Code session (matcher `(all)`, plugin `hermes@hermes`) and via real blocked tool calls (`sudo`, SSRF to the cloud metadata IP via `curl`/`nc`, decimal-encoded and variable-obfuscated IP forms) each producing a matching, timestamp-correlated entry in `logs/reflexion_seed.json` — not just a unit test. Stages 1–5 beyond the gate itself are proven at the component level; the Stage 3 external-integration paths (Ollama, Tavily search, MCP stdio) were exercised live on real infrastructure 2026-07-05 — real Ollama daemon, real Tavily key, real `@modelcontextprotocol/server-filesystem` handshake (evidence kept locally in `logs/proof_gate4.md`). Autonomy paths (Cron/Delegation under real unattended load) remain proven at the component level only. NYX (Stage 6) is deliberately out of scope: NYX doesn't exist yet.
 
 | Stage | Scope | Status |
 |---|---|---|
@@ -63,11 +63,27 @@ Nothing bypasses Apollo. Nothing bypasses the security gate — it's a `PreToolU
 ```bash
 cp HERMES.local.md.example HERMES.local.md
 # edit HERMES.local.md: set OLLAMA_MODEL to your local model name
+
+# Tier C (semantic retrieval) needs two third-party deps; everything else is
+# stdlib-only. Install them before relying on Mnemos v2 / ReasoningBank:
+pip install -r requirements.txt
+
+python3 test_hermes.py   # full suite: green (2 by-design skips)
 ```
+
+Order matters for the test suite: run it *after* `pip install`. **Before** the
+deps are installed, the suite intentionally reports **one failure** —
+`TestActiveModulesProvablyRun.test_active_modules_runtime_deps_are_met`. That is
+not a bug; it is the C6 guard enforcing "a module the manifest calls *active*
+must provably run." `mnemos-v2`/`reasoningbank` are active and need `hnswlib`, so
+the guard fails until you install requirements (or move those modules to
+`modules.offline` in `.claude-plugin/plugin.json`). The Tier-C behavior tests
+themselves skip cleanly pre-deps; only the guard fails, and it goes green the
+moment the deps are present.
 
 `HERMES.local.md` is git-ignored on purpose — it carries machine-specific config and is never meant to be committed.
 
-Install as a Claude Code plugin via `.claude-plugin/plugin.json`, which registers `SKILL.md` as the entry point and `hooks/verify.sh` as a `PreToolUse` hook.
+Install as a Claude Code plugin via `.claude-plugin/plugin.json`, which registers `SKILL.md` as the entry point and `hooks/verify.sh` as a `PreToolUse` hook. The hook commands use `${CLAUDE_PLUGIN_ROOT}`, so the plugin resolves its own paths — no manual path editing after install.
 
 ## Known limitations — read before trusting retrieval quality
 

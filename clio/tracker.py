@@ -46,14 +46,24 @@ def load_entries(log_path: Path = REASONING_LOG, since: str = None):
 
 
 def aggregate(entries, group_by: str = "tier"):
+    """Group the trace by any field the line carries — 'tier', 'model',
+    'task_type', 'decision', 'outcome' (V1_CHECKLIST §3: the trace can be
+    sliced by which tier/model served and what decision was made). Cost is
+    accumulated from each entry's own tier, so it stays correct under any
+    grouping, not just group_by='tier'."""
     groups = defaultdict(lambda: {"count": 0, "tokens": 0, "latency_ms": 0,
-                                   "success": 0, "failure": 0})
+                                   "success": 0, "failure": 0, "est_cost_usd": 0.0})
     for e in entries:
-        key = e.get(group_by, "unknown")
+        # a present-but-null field (e.g. model on a pre-§3 line) reads as 'unknown'
+        key = e.get(group_by)
+        if key is None:
+            key = "unknown"
         g = groups[key]
         g["count"] += 1
-        g["tokens"] += e.get("tokens", 0) or 0
+        tokens = e.get("tokens", 0) or 0
+        g["tokens"] += tokens
         g["latency_ms"] += e.get("latency_ms", 0) or 0
+        g["est_cost_usd"] += (tokens / 1000.0) * TIER_RATES_PER_1K.get(e.get("tier"), 0.006)
         if e.get("success") is True:
             g["success"] += 1
         elif e.get("success") is False:
@@ -61,8 +71,7 @@ def aggregate(entries, group_by: str = "tier"):
     # add derived fields
     for key, g in groups.items():
         g["avg_latency_ms"] = round(g["latency_ms"] / g["count"], 1) if g["count"] else 0
-        tier = key if group_by == "tier" and isinstance(key, int) else None
-        g["est_cost_usd"] = round((g["tokens"] / 1000.0) * TIER_RATES_PER_1K.get(tier, 0.006), 4) if tier else None
+        g["est_cost_usd"] = round(g["est_cost_usd"], 4)
     return dict(groups)
 
 

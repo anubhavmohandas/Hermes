@@ -41,6 +41,8 @@ from pathlib import Path
 HERMES_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERMES_ROOT / "meta" / "security"))
 import redact  # noqa: E402
+sys.path.insert(0, str(HERMES_ROOT))
+from meta.contracts import Task, DelegationPlan, ExecutionResult  # noqa: E402  boundary contract (V1_CHECKLIST §2)
 
 MAX_CHILDREN = 3  # locked in — see module docstring; do not parameterize
 
@@ -141,6 +143,50 @@ def dispatch(prompts, async_profile: bool = False, timeout_seconds: int = DEFAUL
             "children": len(results),
             "max_concurrent": MAX_CHILDREN,
             "results": [{"prompt": p[:120], **r} for p, r in zip(prompts, results)]}
+
+
+# ---------------------------------------------------------------------------
+# Boundary contract (V1_CHECKLIST §2): dispatch(task) -> ExecutionResult.
+# Thin, pinned wrappers over build_child_command/_run_child/dispatch. The
+# concurrency cap, tool-masking, and rate-limit classification internals can
+# be refactored freely as long as these shapes hold. The plural
+# dispatch(prompts) -> dict above stays for the CLI, agenda.py, and existing
+# tests.
+# ---------------------------------------------------------------------------
+def build_plan(tasks, async_profile: bool = False) -> DelegationPlan:
+    """Build the fan-out plan from Tasks (or bare prompt strings). Nothing is
+    spawned. `max_concurrent` is the locked MAX_CHILDREN cap, surfaced on the
+    plan so callers read it off the contract instead of the module."""
+    norm = [t if isinstance(t, Task) else Task(prompt=str(t), async_profile=async_profile)
+            for t in tasks]
+    return DelegationPlan(tasks=norm, max_concurrent=MAX_CHILDREN, async_profile=async_profile)
+
+
+def dispatch_task(task: Task, dry_run: bool = False) -> ExecutionResult:
+    """Run one Task -> ExecutionResult. dry_run returns the exact child argv as
+    output without spawning (what tests use, so they never burn API tokens)."""
+    argv = build_child_command(task.prompt, async_profile=task.async_profile, model=task.model)
+    if dry_run:
+        return ExecutionResult(status="dry_run", output=" ".join(argv), prompt=task.prompt)
+    if not claude_cli_available():
+        return ExecutionResult(
+            status="not_dispatched",
+            output="claude CLI not on PATH — Delegation needs the CLI host; no results were faked",
+            prompt=task.prompt)
+    rec = _run_child(argv, task.timeout_seconds)
+    return ExecutionResult(status=rec["status"], output=rec["output"],
+                           elapsed_ms=rec["elapsed_ms"], prompt=task.prompt)
+
+
+def dispatch_plan(plan: DelegationPlan, dry_run: bool = False):
+    """Run a DelegationPlan -> list[ExecutionResult], ≤ max_concurrent in
+    flight (the queue drains in waves). Input order is preserved."""
+    if dry_run:
+        return [dispatch_task(t, dry_run=True) for t in plan.tasks]
+    if not claude_cli_available():
+        return [dispatch_task(t) for t in plan.tasks]  # each reports not_dispatched
+    with ThreadPoolExecutor(max_workers=plan.max_concurrent) as pool:
+        return list(pool.map(lambda t: dispatch_task(t), plan.tasks))
 
 
 def status():
