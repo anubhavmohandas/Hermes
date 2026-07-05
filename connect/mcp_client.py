@@ -210,8 +210,9 @@ def main():
               file=sys.stderr)
         sys.exit(2)
 
-    client = MCPStdioClient(server_cmd)
+    client = None
     try:
+        client = MCPStdioClient(server_cmd)
         session = client.start()
         if head[0] == "tools":
             print(json.dumps({"session": session, "tools": client.list_tools()},
@@ -223,8 +224,18 @@ def main():
         else:
             print(f"unknown command: {head[0]}", file=sys.stderr)
             sys.exit(2)
+    except (PermissionError, ConnectionError, RuntimeError, TimeoutError) as e:
+        # same contract as ollama_client.py's CLI: a clean one-line refusal,
+        # not a raw traceback with internal file paths (failure-injection
+        # testing, 2026-07-05, found every one of these surfacing as a full
+        # traceback — functionally harmless since the exit code was already
+        # non-zero and the security-relevant block already happened before
+        # this point, but inconsistent UX and a minor info leak)
+        print(f"mcp_client.py: {e}", file=sys.stderr)
+        sys.exit(1)
     finally:
-        client.close()
+        if client is not None:
+            client.close()
 
 
 if __name__ == "__main__":

@@ -297,7 +297,12 @@ def main():
         print(json.dumps(out, indent=2))
         sys.exit(0 if out["fetched"] else 1)
     elif args.command == "search":
-        print(json.dumps(search(args.query, args.max_results), indent=2))
+        result = search(args.query, args.max_results)
+        print(json.dumps(result, indent=2))
+        # mirror the `fetch` subcommand's exit-code contract: a caller
+        # scripting on exit code alone (Cron, Delegation) must be able to
+        # tell "zero backends worked" from "search worked, zero results"
+        sys.exit(0 if result.get("backend") else 1)
     elif args.command == "status":
         print(json.dumps(status(), indent=2))
 
