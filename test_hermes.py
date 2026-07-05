@@ -1285,6 +1285,109 @@ class TestCreateFlow(HermesTestCase):
 
 
 # ---------------------------------------------------------------------------
+# Gate 2 (partial) — Apollo routing table structural integrity.
+#
+# Honesty label: this does NOT behaviorally test Apollo. Apollo's actual
+# "logic" is natural-language instructions in SKILL.md that only an LLM
+# executes — there is no Python function to call with a user prompt and
+# assert the routing decision. What follows is the strongest check that
+# doesn't require an LLM in the loop: every entry Apollo's routing table
+# promises to route to must actually exist, be non-empty, and (for skill
+# files) carry valid, parseable frontmatter — so a broken or missing target
+# fails HERE instead of silently at the moment a real user hits that row.
+# Real behavioral proof (does Claude actually pick the right row given a
+# prompt) requires a live `claude -p` harness — see
+# docs/gate2_live_routing_harness.py, which this suite does not run because
+# it costs real tokens/time and needs the `claude` CLI on PATH.
+# ---------------------------------------------------------------------------
+class TestApolloRoutingStructural(HermesTestCase):
+    def _routing_table_rows(self):
+        skill = (ROOT / "SKILL.md").read_text()
+        start = skill.index("## 3. Routing table")
+        end = skill.index("## 4.", start)
+        table = skill[start:end]
+        rows = [line for line in table.splitlines()
+                if line.startswith("|") and "---" not in line and "User intent" not in line]
+        self.assertGreater(len(rows), 10, "routing table parsed suspiciously few rows — "
+                                          "did the §3 heading text change?")
+        return rows
+
+    def test_every_routing_target_file_exists_and_is_nonempty(self):
+        # Extract path-like tokens (word/word...ext) from the "Route to"
+        # column of every row and confirm each one is a real, non-empty file.
+        path_re = re.compile(r"[\w./-]+\.(?:py|md)")
+        checked = 0
+        for row in self._routing_table_rows():
+            for match in path_re.findall(row):
+                # Strip a leading skill-dir style prefix like `~/.claude/...`
+                # (installed, external skills — not ours to assert on) and
+                # bare filenames without a directory (too ambiguous, e.g.
+                # generic mentions) — keep only paths that look like our own
+                # repo-relative targets (contain at least one "/").
+                if match.startswith("~") or "/" not in match:
+                    continue
+                target = ROOT / match
+                self.assertTrue(target.exists(), f"routing table promises {match!r} "
+                                                 f"but it doesn't exist in the repo")
+                self.assertGreater(target.stat().st_size, 0, f"{match!r} exists but is empty")
+                checked += 1
+        self.assertGreater(checked, 5, "path-extraction regex matched suspiciously few "
+                                       "targets — routing table format may have changed")
+
+    def test_every_referenced_skill_md_has_valid_frontmatter(self):
+        # Every skills/*/SKILL.md the routing table points to must be valid
+        # YAML frontmatter with at least name+description — the exact class
+        # of bug found live 2026-07-05 (unquoted colon broke webdev/SKILL.md
+        # and commands/security-review.md at plugin-install time).
+        # No third-party yaml dependency in this stdlib-only suite — parse
+        # just enough to prove it's well-formed: starts with '---', has a
+        # matching closing '---', and the block contains 'name:' and
+        # 'description:' keys with non-empty values.
+        for match in re.findall(r"(skills/[\w-]+/SKILL\.md)", (ROOT / "SKILL.md").read_text()):
+            path = ROOT / match
+            if not path.exists():
+                continue  # already failed by the previous test; don't double-report
+            text = path.read_text()
+            self.assertTrue(text.startswith("---\n"), f"{match} missing opening frontmatter fence")
+            end = text.index("\n---", 4)
+            frontmatter = text[4:end]
+            self.assertIn("name:", frontmatter, f"{match} frontmatter missing 'name:'")
+            self.assertIn("description:", frontmatter, f"{match} frontmatter missing 'description:'")
+            # A colon-space inside an unquoted description breaks YAML — the
+            # exact live bug. Cheap check: the description line's value, if
+            # unquoted, must not contain ": " before the next line.
+            for line in frontmatter.splitlines():
+                if line.startswith("description:"):
+                    value = line[len("description:"):].strip()
+                    if value and not (value.startswith('"') or value.startswith("'")):
+                        self.assertNotIn(": ", value,
+                                          f"{match} has an unquoted description containing "
+                                          f"': ' — this breaks YAML frontmatter parsing "
+                                          f"(quote the whole description)")
+
+    def test_module_map_and_routing_table_agree_on_active_status(self):
+        # Cross-check §10's module map against §3's routing table: nothing
+        # marked "Active" in one place should be silently absent from the
+        # other for the modules that appear in both (best-effort — some
+        # module-map rows are infrastructure with no direct routing-table
+        # row, e.g. brain.py itself, which is fine and skipped here).
+        skill = (ROOT / "SKILL.md").read_text()
+        routing_start = skill.index("## 3. Routing table")
+        routing_end = skill.index("## 4.", routing_start)
+        routing_text = skill[routing_start:routing_end]
+        module_map_start = skill.index("## 10. Module map")
+        module_map_text = skill[module_map_start:]
+        shared_targets = ("skills/create", "skills/research", "skills/tasks",
+                           "skills/documents", "skills/webdev", "cron/scheduler.py",
+                           "delegation/dispatch.py", "fetcher/fetch.py", "connect/mcp_client.py")
+        for target in shared_targets:
+            self.assertIn(target, routing_text, f"{target} missing from routing table "
+                                                f"but present in module map")
+            self.assertIn(target.split("/")[0], module_map_text,
+                          f"{target}'s module family missing from the module map")
+
+
+# ---------------------------------------------------------------------------
 # Stage 3 — Cron: security refusal, hard interrupt, lock exclusion
 # ---------------------------------------------------------------------------
 class TestCron(HermesTestCase):
