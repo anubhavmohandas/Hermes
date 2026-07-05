@@ -223,6 +223,117 @@ strictly-local data in an untrusted multi-turn session.
 
 ---
 
+## D5 — HERMES's security gate is unconfirmed (and probably inactive) on the Cowork platform
+
+**Found:** 2026-07-06, direct test in a Cowork session with the `hermes`
+plugin installed and enabled. `plugin.json` lists `"platform": ["cli",
+"cowork"]`, implying the `PreToolUse` hook (`hooks/verify.sh`) applies on
+both. Ran `sudo id` via Cowork's own Bash tool (`mcp__workspace__bash`) to
+test it — the same class of call the CLI-side proof
+(`logs/reflexion_seed.json`, 2026-07-05) confirmed `verify.sh` blocks with a
+distinct BLOCKED entry. In Cowork, it just ran and failed for an unrelated
+container-permission reason, with no sign of the hook touching it.
+
+**Why this is plausible, not just a fluke:** `PreToolUse` hooks attach to a
+specific tool-calling pipeline. Cowork's Bash tool is a separate MCP-based
+tool (`mcp__workspace__bash`), architecturally distinct from the CLI's
+native tool-call loop that the hook is registered against. The skill/prompt
+layer (Apollo, routing, Mnemos recall) demonstrably works in Cowork — tested
+separately, confirmed live — but that's a different mechanism (an LLM
+reading and choosing to follow `SKILL.md`) than a hook that fires regardless
+of what the model decides.
+
+**Consequence if true:** the core invariant "nothing bypasses the security
+gate... it can't be talked around" (README, `SKILL.md`) holds on the CLI
+(proven, 2026-07-05) but does NOT hold on Cowork — a materially weaker
+guarantee than the docs currently imply for a platform `plugin.json` lists
+as supported.
+
+**Options:** (A) accept Cowork as skill-layer-only, no enforced gate, and
+say so explicitly in README/SKILL.md rather than implying parity across
+platforms; (B) find whether Cowork has its own hook-equivalent mechanism and
+wire `verify.sh`'s logic into it; (C) drop `cowork` from `plugin.json`'s
+declared platforms until B is resolved, so the manifest doesn't claim
+security parity it hasn't got.
+
+**Status: needs the human's call — single data point (one blocked-command
+test), not exhaustive.** Until decided, treat any Cowork HERMES session as
+running with Apollo's cooperation, not the CLI's enforced gate.
+
+---
+
+## D6 — Clio's Tier-2 (Ollama) token/latency logging is demonstrably incomplete
+
+**Found:** 2026-07-06, live `clio/tracker.py` run against the real
+`logs/reasoning_seed.jsonl`. Two Tier-2 entries showed `tokens: 0,
+latency_ms: 0`, despite a real `ollama_client.py chat` call earlier the same
+day (2026-07-05, Gate 4 proof) returning genuine non-zero values
+(`tokens=37, latency_ms=1411`). Something is reaching Clio's log without the
+real numbers attached.
+
+**Why:** per `SKILL.md` §2 step 6o, feeding Tier-2 tokens/latency into the
+log is something Apollo is instructed to do after each response — a
+prompt-level habit (an LLM following a written step), not a return value
+`ollama_client.py` pipes into logging automatically itself. Same enforcement
+shape as D4 (rule lives in a markdown instruction, not in code that
+guarantees it happens every time).
+
+**Consequence:** Clio's Tier-2 cost/latency numbers cannot currently be
+trusted as complete — some real local-model usage silently reads as
+free/instant. This also bears on the "how much have I used" question
+users may ask HERMES: the honest answer today is Clio has no access to
+Anthropic's actual account-level usage/quota at all (verified: no
+usage/quota/remaining-balance code exists anywhere in the repo), and even
+its own local tally has a known gap.
+
+**Options:** (A) have `ollama_client.py.chat()` write the log entry itself,
+directly, right after a successful call — moves this from prompt-dependent
+to code-guaranteed, mirrors the D1/D4-Option-B pattern; (B) leave it
+Apollo-driven but add a test that fails if a real `chat()` call isn't
+followed by a matching non-zero log entry within the same session; (C)
+accept the gap as a known Clio limitation and say so in README's "Known
+limitations" section rather than implying Clio's numbers are complete.
+
+**Status: needs the human's call.** Option A is the cheapest fix and
+directly closes the gap; flagging here rather than quietly patching it
+because it changes where the log-write responsibility lives (code vs.
+prompt), which is exactly the kind of call D1/D4 said belongs to a human.
+
+---
+
+## D7 — Multiple concurrent Claude sessions can write to the same repo with no designated driver
+
+**Found:** 2026-07-05/06, repeatedly, during the same work described in D5
+above. A VS Code Claude Code session and this Cowork session were both
+making commits to `hermes` in the same window, with neither aware of the
+other's state. Concretely: a commit titled `"MCP"` (`b14a2d3`) landed,
+containing five files this session had just been told still needed
+committing — the other session had already committed them moments earlier.
+No data was lost (verified both times by diffing the actual commit against
+what was claimed), but it produced confusing provenance, redundant
+instructions, and one wasted round of `git add` that had nothing left to
+stage.
+
+**Why this matters beyond today:** the failure mode isn't limited to
+confusing commit messages — two sessions editing the same file close
+together risks a genuinely lost write, and a session trusting a stale
+mental model of `git status` can give instructions that silently no-op or
+conflict.
+
+**Options:** (A) designate one session as the sole driver for git operations
+at any given time, treat others as read-only/advisory; (B) accept the risk
+and make "verify actual git state before instructing any git command" a
+standing rule for every session (partially already true this session — see
+`feedback_hermes_verify_before_trusting_reports` in Cowork memory); (C) use
+a branch per active session and merge deliberately, rather than everyone
+committing straight to `main`.
+
+**Status: needs the human's call — currently running as an unmanaged
+version of (B).** No incident has caused real damage yet; this is a
+before-it-does entry, not an after-the-fact one.
+
+---
+
 *Add new entries above this line as they come up. Don't resolve a D-item by
 editing this file alone — the code has to change too, and the entry should
 note the commit/date it was closed.*
