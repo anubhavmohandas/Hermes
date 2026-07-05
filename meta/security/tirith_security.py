@@ -30,7 +30,8 @@ def scan_binary(path: str):
         return False, [f"path does not exist: {path}"]
 
     try:
-        head = p.open("rb").read(64)
+        with p.open("rb") as f:
+            head = f.read(64)
     except Exception as e:
         return False, [f"could not read file: {e}"]
 
