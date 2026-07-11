@@ -128,7 +128,8 @@ def _all() -> list:
 
 def add(goal: str, context: str = "", allow_bash: bool = False,
         child_timeout: int = DEFAULT_CHILD_TIMEOUT,
-        max_failures: int = DEFAULT_MAX_FAILURES, workspace: str = None) -> dict:
+        max_failures: int = DEFAULT_MAX_FAILURES, workspace: str = None,
+        model: str = None) -> dict:
     # non-security digest — agenda id only (usedforsecurity=False; audit L4)
     agenda_id = "ag-" + hashlib.md5(f"{goal}|{time.time()}".encode(), usedforsecurity=False).hexdigest()[:8]
     external_workspace = None
@@ -143,6 +144,14 @@ def add(goal: str, context: str = "", allow_bash: bool = False,
         "child_timeout": int(child_timeout),
         "max_failures": int(max_failures),
         "external_workspace": external_workspace,  # None = default internal workspace
+        # Pin the model for every child attempt (2026-07-11: agenda previously
+        # had no way to specify this — every tick fell through to whatever
+        # the bare `claude` CLI resolves to for the workspace cwd, which is
+        # NOT necessarily what an interactive session (e.g. VS Code) has
+        # configured, since each tick is a fresh headless subprocess, not a
+        # continuation of any running session. None = same old bare-default
+        # behavior, unchanged for existing callers.
+        "model": model,
         "created_at": _now_iso(),
         "attempts": 0,
         "rate_limited_count": 0,
@@ -158,6 +167,7 @@ def add(goal: str, context: str = "", allow_bash: bool = False,
     return {"added": True, "id": agenda_id, "workspace": str(ws),
             "external_workspace": bool(external_workspace),
             "allow_bash": agenda["allow_bash"],
+            "model": agenda["model"] or "(CLI default — not pinned)",
             "note": "run `install-cron` once so ticks fire unattended"}
 
 
@@ -253,7 +263,8 @@ def tick(runner=None, dry_run: bool = False) -> dict:
 
     allowed = AGENDA_CHILD_ALLOWED + (("Bash",) if agenda["allow_bash"] else ())
     argv = dispatch.build_child_command(build_resume_prompt(agenda),
-                                        allowed_tools=allowed)
+                                        allowed_tools=allowed,
+                                        model=agenda.get("model"))
     ws = _effective_workspace(agenda)
     if dry_run:
         return {"ticked": True, "attempted": agenda["id"], "dry_run": True,
@@ -353,6 +364,11 @@ def main():
     p_add.add_argument("--workspace", default=None,
                        help="point the child's cwd at an external project folder "
                             "instead of the default internal delegation/agenda/<id>.workspace/")
+    p_add.add_argument("--model", default=None,
+                       help="pin every child attempt to this model (e.g. claude-sonnet-5, "
+                            "claude-opus-4-8). Default: unset — falls through to whatever "
+                            "the bare `claude` CLI resolves to for the workspace, which is "
+                            "NOT the same as an interactive session's configured model.")
 
     p_tick = sub.add_parser("tick")
     p_tick.add_argument("--dry-run", action="store_true")
@@ -370,7 +386,7 @@ def main():
     if args.command == "add":
         out = add(args.goal, context=args.context, allow_bash=args.allow_bash,
                   child_timeout=args.child_timeout, max_failures=args.max_failures,
-                  workspace=args.workspace)
+                  workspace=args.workspace, model=args.model)
     elif args.command == "tick":
         out = tick(dry_run=args.dry_run)
     elif args.command == "list":

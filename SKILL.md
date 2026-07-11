@@ -84,7 +84,7 @@ If any self-check fails, say so plainly in the status line (`✗ brain.py: NOT F
 | search / find / research / look up / what is | `skills/research/SKILL.md` (Fetcher-backed; deep dives via `prompts/research.md` intake) | Active |
 | task / plan / break down / todo / track | `skills/tasks/SKILL.md` | Active |
 | document format handling / "turn this into a DOCX/PDF/XLSX/PPTX" (content already exists) | `skills/documents/SKILL.md` → installed `~/.claude/skills/{docx,pdf,xlsx,pptx}` | Active |
-| website / landing page / frontend / dashboard / mobile app (post-intake build) | `skills/webdev/SKILL.md` (ui-ux-pro-max + frontend-design + webdev.py tokens + webapp-testing) | Active |
+| website / landing page / frontend / dashboard / mobile app (post-intake build) | `skills/webdev/SKILL.md` (ui-ux-pro-max + frontend-design + webdev.py tokens + webapp-testing + native animation-craft sub-skill) | Active |
 | remember / recall / what did we decide / search past sessions | `mnemos/hybrid_search.py` (3-tier: BM25 → regex → semantic HNSW) | Active (v2) |
 | token usage / cost / how many tokens / what's this costing | `clio/tracker.py report` | Active (v1) |
 | self-correct / what went wrong / don't repeat that mistake / show me recurring failures | `curator/consolidate.py` + `curator/propose.py` | Active (v1) |
@@ -190,7 +190,7 @@ If Bash isn't available or is restricted:
 | Research (Fetcher backend, WebSearch fallback) | skills/research/ | 3A/3C | Active |
 | Tasks (TaskCreate pattern) | skills/tasks/ | 3A | Active |
 | Documents (routes to installed docx/pdf/xlsx/pptx skills) | skills/documents/ | 3A | Active (skills installed at `~/.claude/skills/`) |
-| Web & mobile builds (design-system-first) | skills/webdev/ | 5 | Active (ui-ux-pro-max + frontend-design + webapp-testing installed; tokens via integrations/webdev.py) |
+| Web & mobile builds (design-system-first) | skills/webdev/ | 5 | Active (ui-ux-pro-max + frontend-design + webapp-testing installed; native `webdev/animation-craft` sub-skill for motion craft, adapted from emilkowalski/skill; tokens via integrations/webdev.py) |
 | HNSW semantic memory + 3-tier hybrid search | Mnemos v2 | 3B | Active (Tier C uses a hashing-trick embedder, not a real semantic model — see §4) |
 | Error capture + reflexion taxonomy + human-gate proposals | Curator v1 | 3B | Active |
 | Reward-scored task memory | ReasoningBank | 3B | Active |

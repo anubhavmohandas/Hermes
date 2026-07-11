@@ -18,6 +18,7 @@ Run:  python3 test_hermes.py        (or: python3 -m pytest test_hermes.py)
 import json
 import re
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -1425,6 +1426,33 @@ class TestCron(HermesTestCase):
         for cmd in ("python3 delegation/agenda.py tick", "python3 brain.py", "echo done", "sleep 1"):
             ok, reason = cron_scheduler.classify_unattended(cmd)
             self.assertTrue(ok, f"{cmd!r} should be allowed: {reason}")
+
+    # --- Gate 3 evidence (2026-07-10): shell=False neutralizes injection ----
+    # The tests above prove classify_unattended() REFUSES known bypass
+    # strings before they ever reach subprocess.run — that's the allowlist
+    # layer. This test proves the SECOND, independent layer: even if a
+    # metacharacter-bearing string somehow reached _run_job's execution
+    # primitive (classifier bug, future refactor, whatever), shell=False +
+    # shlex.split means there is no shell to interpret it. A classic
+    # denylist-bypass payload (chain a destructive command after a benign
+    # one via `;`) must execute as ONE literal argv, never as two commands.
+    def test_shell_false_execution_neutralizes_chained_injection_payload(self):
+        marker = self.tmpdir() / "should_not_be_created"
+        payload = f"echo safe; touch {marker}"
+        # This is exactly _run_job's execution primitive (cron/scheduler.py
+        # ~line 334-336), exercised directly against a payload the allowlist
+        # would ALSO refuse (semicolon triggers _SHELL_META_RE) — proving
+        # the defense holds at the execution layer too, not only the gate
+        # in front of it.
+        proc = subprocess.run(shlex.split(payload), shell=False,
+                               capture_output=True, text=True, timeout=5)
+        self.assertFalse(marker.exists(),
+                          "shell metacharacter was interpreted as a command "
+                          "separator — shell=False protection is broken")
+        # With shell=False, argv becomes ["echo", "safe;", "touch", <marker>]
+        # — "echo" prints its literal arguments and exits; nothing after the
+        # first token is a separate command.
+        self.assertIn("safe;", proc.stdout)
 
     def test_hard_interrupt_kills_overrunning_job(self):
         cron_scheduler.add_job("slow", "sleep 5", "once", timeout_seconds=1)

@@ -1,6 +1,6 @@
 ---
 name: hermes-webdev
-description: "HERMES web/mobile development sub-skill. Apollo routes here for website / landing page / web app / dashboard / frontend / mobile app requests (usually via skills/create intake first). Wires the installed design-intelligence skills (ui-ux-pro-max, frontend-design, theme-factory, webapp-testing) and integrations/webdev.py tokens into an actual build: design system → scaffold → sections → QA → deliver."
+description: "HERMES web/mobile development sub-skill. Apollo routes here for website / landing page / web app / dashboard / frontend / mobile app requests (usually via skills/create intake first). Wires the installed design-intelligence skills (ui-ux-pro-max, frontend-design, theme-factory, webapp-testing) plus the native animation-craft sub-skill and integrations/webdev.py tokens into an actual build: design system → scaffold → sections → motion QA → deliver."
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 user-invocable: false
 ---
@@ -45,12 +45,19 @@ beyond that: `Extractions/{dyad,impeccable,open-design,design-extract}/
 4. **Sections with real copy.** Build section by section per the intake's
    sitemap. No lorem ipsum — write copy for the stated audience and goal.
    Every interactive element gets hover/focus/loading/empty/error states.
+   Any animated or gestural element (buttons, dropdowns, modals, toasts,
+   drag surfaces) runs through `skills/webdev/animation-craft/SKILL.md`
+   first — what to animate, easing/duration, spring vs. transition. Skip
+   it only for static content sections with no motion.
 
 5. **QA before delivering.** `webapp-testing` skill where a browser is
    available (screenshots at mobile + desktop widths); fallback:
    `python3 fetcher/fetch.py fetch <local-url>` sanity check or static
    review against the ui-ux-pro-max UX guidelines. Fix contrast, overflow,
-   and hierarchy failures before handoff, not after.
+   and hierarchy failures before handoff, not after. Run the
+   `animation-craft` Review Checklist against any motion in the build and
+   report findings as its mandatory Before/After/Why table — not a prose
+   list.
 
 6. **Verify → log → deliver** per `skills/create` §5: the site runs (name
    the one command to start it), Mnemos + ReasoningBank logged, delivery

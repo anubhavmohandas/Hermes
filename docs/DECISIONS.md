@@ -52,6 +52,68 @@ existing modules; none of them adds a subsystem.
 
 ---
 
+## Gate 3 — Unattended execution threat model: cron/scheduler.py + delegation/agenda.py (STANDING, closed 2026-07-10)
+
+**The threat:** both modules run commands with nobody present to approve
+them in the moment. `approval.classify_command()` (the shared denylist) is
+necessarily incomplete — it pattern-matches known-dangerous shapes (`sudo`,
+`rm -rf`, `DROP TABLE`, …) but cannot enumerate every destructive command a
+denylist wasn't written to recognize (`find / -delete`, a `python3 -c`
+one-liner that `shutil.rmtree`s a tree, reading `~/.ssh/id_rsa` for
+exfiltration — none of these match a denylist pattern but are exactly as
+dangerous). A single denylist, run with `shell=True`, is the wrong shape for
+something that runs unattended: a shell interprets `;`, `|`, `` ` ``, `$()`,
+and `<>` redirection regardless of what the denylist caught, so any gap in
+the denylist becomes a real shell injection with nobody watching.
+
+**The fix, two independent layers (audit M3, 2026-07-05):**
+1. **Positive allowlist, not just denylist** — `cron/scheduler.py`'s
+   `classify_unattended()` requires every unattended command to be either a
+   HERMES-internal `python3 <script-under-HERMES_ROOT>` invocation (inline
+   `-c`/`-m` refused, script path must resolve inside `HERMES_ROOT`) or one
+   of five trivially-safe binaries (`echo`, `true`, `false`, `sleep`,
+   `date`). Anything else is refused — including everything the denylist
+   alone would have called "safe." There is deliberately no override flag.
+2. **`shell=False` at the execution site** — `_run_job()`
+   (`cron/scheduler.py`) runs `subprocess.run(shlex.split(command),
+   shell=False, ...)`. Even if a command somehow passed classification with
+   a shell metacharacter in it (defense-in-depth, not the expected path —
+   `_SHELL_META_RE` already refuses these at classify-time), `shell=False`
+   means there is no shell present to interpret `;`/`|`/`` ` ``/`$()` — the
+   whole string becomes one literal argv to one binary. `delegation/agenda.py`
+   never shells out directly at all: it spawns a `claude -p` child via
+   `subprocess.run(argv, ...)` (argv vector, not a string), and Bash access
+   for that child is granted only when the human passed `--allow-bash` at
+   add-time (Invariant #3 — unattended runs never self-escalate); whatever
+   that child does with Bash still passes through the platform's own
+   `PreToolUse` gate (`verify.sh`), the same enforcement every other tool
+   call gets.
+
+**Residual risk, stated plainly:** the allowlist is narrow by design (five
+binaries + HERMES's own scripts) — this trades flexibility for the property
+that "unattended = nobody to ask" never expands into "unattended = trust a
+denylist to have thought of everything." `agenda.py`'s external-workspace
+mode (`--workspace <path>`) is cwd+prompt constraint, not a filesystem
+jail — an agent granted `--allow-bash` there can still write anywhere it has
+OS-level permission to; that is a documented, accepted risk of granting
+`--allow-bash` at all, not a gap in this hardening pass.
+
+**Evidence (Gate 3, 2026-07-10):** `python3 -m unittest test_hermes.TestCron -v`
+— 8/8 passing, including `test_unattended_allowlist_blocks_denylist_safe_but_dangerous`
+(five denylist-safe-but-dangerous strings, all refused),
+`test_unattended_allowlist_permits_hermes_entrypoints` (legitimate commands
+still work), and the new `test_shell_false_execution_neutralizes_chained_injection_payload`
+— a literal `;`-chained payload (`echo safe; touch <marker>`) run through
+the exact `shlex.split(...)  + shell=False` primitive `_run_job` uses,
+proving the marker file is never created. Full transcript:
+`logs/proof_gate3.md`.
+
+**Status: CLOSED.** Both required elements present — code hardening
+(shell=False + positive allowlist, predates this entry) and a test proving
+a known denylist-bypass string no longer executes (added 2026-07-10).
+
+---
+
 ## D1 — Interactive human approval for `approval`-tier Bash commands
 
 **Found:** 2026-07-02 code audit (M1). `approval.py` classifies commands
@@ -334,6 +396,97 @@ before-it-does entry, not an after-the-fact one.
 
 ---
 
-*Add new entries above this line as they come up. Don't resolve a D-item by
+## D8 — `cron/cron.db` (SQLite) writes fail on Cowork's FUSE mount — the exact Mnemos failure mode, recurring
+
+**Found:** 2026-07-10, while building `delegation/start_loop.py` (a UX
+wrapper over `agenda.add()` / `cron_scheduler.add_job()`, no new logic) and
+testing it for real in this Cowork session. `agenda.install_cron()` — which
+calls `cron_scheduler.add_job()` — raised `sqlite3.OperationalError: disk
+I/O error`. Reproduced a second time directly against `cron_scheduler.add_job()`,
+same error both times. `df -T` confirms `/sessions/.../mnt/HERMES` (this
+session's view of the repo) is `type fuse`. `cron/cron.db` sits at 0 bytes
+with an orphaned `cron/cron.db-journal` (512 bytes, identifies as "SQLite
+Rollback Journal") that a subsequent clean `sqlite3.connect()` + integrity
+check does NOT clear — `PRAGMA integrity_check` reports `ok` but
+`sqlite_master` has zero tables, meaning the `CREATE TABLE IF NOT EXISTS
+jobs` in `_connect()` has never successfully committed on this mount.
+
+**Why this matters — this is not a new bug class:**
+`HERMES_STABILIZE_PROMPT.md` invariant 6 already names this exact failure
+mode: "Prove on REAL local disk, never the FUSE/Cowork mount (that is what
+broke Mnemos before)." Cron.db uses the same SQLite-WAL pattern Mnemos
+does, and now shows the same symptom. FUSE mounts (at least this one)
+appear not to support the file-locking semantics SQLite depends on for
+safe concurrent writes/journal replay.
+
+**What I could NOT determine:** whether `cron/cron.db` ever held real job
+rows before today. `cron/cron.db*` is gitignored (machine-local state by
+design — see `cron/scheduler.py`'s own header comment), so git has no
+history to check. No proof file (`logs/proof_gate*.md`) or `debug.log`
+entry shows a prior successful `add_job()` call. The likelier read: this
+Cowork-mounted `cron.db` never had a working `jobs` table in the first
+place (the FUSE incompatibility would have blocked table creation from the
+very first write attempt on this mount), and today's test simply surfaced
+a latent, previously-unexercised gap rather than destroying prior state —
+but this is inference, not proof, and is flagged as such.
+
+**Consequence:** any Cowork session that calls `cron_scheduler.add_job()` —
+directly, via `agenda.install_cron()`, or via the new
+`delegation/start_loop.py` — will hit this. `agenda.add()` itself is
+unaffected (it stores each agenda as a plain JSON file, not SQLite) and
+worked correctly in the same test.
+
+**Options:** (A) treat this as CLI-only going forward — document plainly
+that `cron/scheduler.py` (and anything that calls into it, including
+`agenda.install_cron()`) must be run from the real Mac, never Cowork, and
+have `start_loop.py` detect the FUSE mount and warn before attempting the
+cron path; (B) investigate whether SQLite's `PRAGMA journal_mode=DELETE`
+(no WAL) or a different locking mode tolerates this specific FUSE
+implementation better, the way Mnemos's fix (if any) was resolved —
+unknown, not yet checked; (C) accept Cron as CLI-only permanently — it
+already requires launchd (Invariant #7) for the tick itself, so requiring
+CLI for job *creation* too may just be honest about an already-CLI-bound
+subsystem, not a new limitation.
+
+**Status: needs the human's call.** Immediate, low-risk workaround
+available now: create cron jobs via `delegation/start_loop.py` or
+`cron/scheduler.py add` from the CLI host, not Cowork. Agenda-only setups
+(no cron install) remain fine from either environment.
+
 editing this file alone — the code has to change too, and the entry should
 note the commit/date it was closed.*
+
+## D9 — `agenda.py tick()` silently no-ops forever under launchd if `claude` isn't on its minimal PATH (closed 2026-07-11)
+
+**Found:** 2026-07-11, live on the production Mac. `launchctl list` showed
+`com.hermes.cron` running, `cron/scheduler.py list` showed `agenda-tick`
+with `last_status: "completed"` and `runs_completed: 26`, but
+`agenda.py show <id>` stayed at `attempts: 0, last_attempt_at: null` — for
+an agenda created ~6.5 hours earlier, almost exactly matching 26 ticks at
+the 900s interval. Every tick since creation had silently done nothing.
+
+**Root cause:** `tick()` (delegation/agenda.py) calls
+`dispatch.claude_cli_available()` (`shutil.which("claude")`) before
+touching the agenda; `dispatch.build_child_command()` also spawns via the
+bare literal `argv[0] = "claude"` — both are PATH lookups. launchd's
+environment is not the interactive shell's environment, so if `claude`
+lives somewhere PATH-dependent (nvm/npm-global/homebrew/etc.), the check
+fails every time. `tick()` returns early before incrementing `attempts` or
+setting `last_attempt_at`, and since nothing on that path calls
+`sys.exit(1)`, the process exits 0 — so `cron/scheduler.py` logs
+"completed" with no way to distinguish "did nothing, PATH problem" from
+"did nothing, no active agenda." No error surfaces anywhere. Exact same bug
+class as the `__PYTHON_BIN__`/TCC issue closed 2026-07-10 (SCHEDULING.md),
+hitting a different binary.
+
+**Fix:** `hooks/com.hermes.cron.plist.template` now sets
+`EnvironmentVariables/PATH` via a new `__PATH__` placeholder, substituted
+from the interactive shell's `$PATH` at render time (same sed one-liner in
+docs/SCHEDULING.md, updated). This fixes both the `claude_cli_available()`
+check and the actual child spawn in one place, since both resolve `claude`
+via the same inherited process environment.
+
+**Status: CLOSED** — template + docs updated 2026-07-11. Verification is
+on the user: re-render and reload the plist, then confirm `agenda.py show
+<id>` shows `attempts` incrementing and `last_attempt_at` no longer `null`
+after the next tick.

@@ -13,9 +13,34 @@
   Replace __HERMES_ROOT__ with the absolute repo path before loading
   (docs/SCHEDULING.md has a one-liner that does it for you).
 
+  Replace __PYTHON_BIN__ with an EXPLICIT absolute python3 path (e.g.
+  `$(which python3)` from the shell you actually use) — NOT `/usr/bin/env
+  python3`. Found live 2026-07-10: `env` resolves python3 via launchd's own
+  minimal PATH, which can silently land on a DIFFERENT binary than the one
+  you use interactively (e.g. `/Library/Developer/CommandLineTools/usr/bin/python3`
+  instead of a venv's python3). Since the repo lives under `~/Documents`
+  (TCC-protected), that resolved binary needs Full Disk Access, and if you
+  can't see/control which binary `env` picked, you end up granting access
+  to the wrong one and the loop fails with "Operation not permitted"
+  forever with no further hint. Pinning an explicit path removes the
+  ambiguity — see docs/SCHEDULING.md.
+
   Invariant #7: Cowork cannot host this loop — launchd on the CLI box is the
   production scheduler. KeepAlive restarts the loop if it dies; the loop's
   .tick.lock makes an overlapping restart harmless (one tick wins).
+
+  Replace __PATH__ with your interactive shell's $PATH (docs/SCHEDULING.md
+  has the one-liner). Found live 2026-07-11: delegation/agenda.py's tick()
+  spawns children via the literal argv[0] "claude", resolved by PATH lookup
+  at call time (dispatch.claude_cli_available() = shutil.which("claude")).
+  launchd's own minimal PATH does NOT include wherever `claude` actually
+  lives (nvm/npm-global/homebrew/etc — wherever your interactive shell
+  finds it). Without this key, claude_cli_available() returns False on
+  every tick forever, tick() returns early before touching the agenda, and
+  exits 0 anyway (no sys.exit(1) on that path) — so the scheduler logs
+  "completed" over and over while the agenda sits at attempts:0 with no
+  error anywhere. Exact same PATH-inside-launchd-is-not-PATH-in-your-shell
+  class of bug as __PYTHON_BIN__ above, hitting a different binary.
 -->
 <plist version="1.0">
 <dict>
@@ -23,8 +48,7 @@
     <string>com.hermes.cron</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/env</string>
-        <string>python3</string>
+        <string>__PYTHON_BIN__</string>
         <string>__HERMES_ROOT__/cron/scheduler.py</string>
         <string>loop</string>
         <string>--poll</string>
@@ -40,5 +64,10 @@
     <string>__HERMES_ROOT__/logs/cron_launchd.log</string>
     <key>WorkingDirectory</key>
     <string>__HERMES_ROOT__</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__PATH__</string>
+    </dict>
 </dict>
 </plist>
