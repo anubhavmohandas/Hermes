@@ -490,3 +490,43 @@ via the same inherited process environment.
 on the user: re-render and reload the plist, then confirm `agenda.py show
 <id>` shows `attempts` incrementing and `last_attempt_at` no longer `null`
 after the next tick.
+
+## D10 — `skills/webdev` silently skips steps 1-2 (design-system search, token scaffold) when brand assets already exist, no degradation notice
+
+**Found:** 2026-07-11, live transcript review of a real Aegis landing-page
+build. The skill ran step 3 (plain HTML scaffold, correct pick for a
+landing page), step 4 (real copy, no lorem ipsum — verified against the
+actual README), and step 5 (webapp-testing QA — real Playwright
+screenshots, desktop+mobile, iterative fixes) faithfully. Steps 1
+(`ui-ux-pro-max/scripts/search.py --design-system`) and 2
+(`integrations/webdev.py tokens --out <dir>` → separate `tokens.css` +
+JSON mirror) never ran. The model went straight from reading the existing
+logo/tray-icon/favicon files to hand-writing CSS custom properties inline
+in `index.html`'s `<style>` block — a reasonable design decision (grounded
+in real brand assets, not invented), but not what the skill documents, and
+not disclosed as a deviation. The skill's own rule ("if ui-ux-pro-max is
+missing, degrade and SAY SO") was not followed either way — it wasn't
+missing, it just wasn't invoked, silently.
+
+**Why this matters:** the pipeline's honesty guarantee ("don't silently
+ship the placeholder palette as if it were designed") only covers the
+missing-tool case. It has no equivalent rule for "tool is installed but I
+decided not to call it because brand assets already exist" — that path
+skips silently with no disclosure and no fallback statement, which is a
+gap in the skill's own logic, not just an execution slip.
+
+**Consequence:** design output quality wasn't provably worse here (see
+review above — copy and QA were solid), but there's currently no way to
+tell "design system was consulted" from "design system was skipped" by
+reading the delivery message alone — only by diffing the transcript
+against the documented steps, which is not something most sessions get
+reviewed this closely.
+
+**Status: OPEN, deferred by user 2026-07-11** — "let it go as it is going"
+for the current Aegis build; not blocking. Needs a human call on the actual
+fix later: either (A) `skills/webdev` step 1 should still run
+`ui-ux-pro-max` search even when brand assets exist, just weighted toward
+matching the existing brand rather than inventing one, or (B) add an
+explicit "skipping design-system search — existing brand assets found at
+X, anchoring off those instead" disclosure line so the skip is visible
+without needing a transcript audit.
