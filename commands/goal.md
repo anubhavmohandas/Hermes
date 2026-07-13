@@ -97,8 +97,8 @@ package what's already built.
 - **STAGE 5 — Integrations & Create** *(v1 Ph5 — the breadth that makes it "everything")*
   db/ (Supabase), webdev/, media/ (claude-video, /watch), Composio connectors
   (sandboxed, permission-per-connector), C++ turbo memory (Python fallback),
-  NotebookLM synthesis (opt-in), Caveman mode, Kanban. Each ships with a
-  fallback.
+  NotebookLM synthesis (opt-in), Laconic token-reduction mode (built
+  2026-07-13), Kanban. Each ships with a fallback.
   **Gate:** each module present with its fallback verified. This completes the
   end goal (everything except NYX).
 

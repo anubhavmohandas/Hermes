@@ -530,3 +530,72 @@ matching the existing brand rather than inventing one, or (B) add an
 explicit "skipping design-system search — existing brand assets found at
 X, anchoring off those instead" disclosure line so the skip is visible
 without needing a transcript audit.
+
+---
+
+## D11 — Laconic mode built; Clio's disk-reading gap closed for Claude Code CLI (CLOSED, 2026-07-13)
+
+**Found:** user asked about two third-party plugin patterns from the
+extraction corpus by garbled/mistranscribed names ("Caveman", "CodeBurn").
+Verification against `CC_SRC_PATTERNS.md` (#161-166, Task #29) and
+`CC_SRC_ANALYSIS_LOG.md` (codeburn, 216 files, Task #27/#47) confirmed
+both were real, extracted patterns — but the user's own description of
+CodeBurn ("remembers bad habits and patches itself") did not match its
+actual function (disk-based token/cost tracking across 18 tools); that
+was a genuine misconception, corrected before any code was written.
+
+**Gap 1 — Caveman/token-reduction mode:** `HERMES_GapAnalysis_2026-07-02.md`
+line 82 (frozen snapshot, not edited retroactively — see that doc's own
+dating) recorded this as "only `output-styles/terse.md`; ~75% reduction
+not built." Now built: `meta/laconic.py` (flag-file IPC per #162,
+activation/deactivation phrase detection + per-turn reinforcement per
+#161, auto-clarity override per #164, sensitive-path denylist +
+structural compression validator per #163/#165), `hooks/laconic_mode.sh`
+(UserPromptSubmit wrapper, same contract as `apollo_gate.sh`),
+`skills/laconic/SKILL.md`. Renamed from the upstream pattern's own name
+on integration, per HERMES's existing convention (Apollo, Mnemos, Clio,
+Curator) — "Laconic" for Laconia/Sparta, historically associated with
+extreme brevity of speech. Moved from `modules.opt_in` to
+`modules.active` in `plugin.json` (the hook is always wired; the *mode*
+itself is opt-in at runtime via natural-language toggle, not at
+install-time). Tested end-to-end: activation/deactivation via flag file,
+clarity-override suspension, JSON hook contract — all pass (synthetic
+stdin, see session transcript).
+
+**Gap 2 — Clio (codeburn pattern):** `EXTRACTION_COVERAGE.md` row 17
+marked ✅ but `clio/tracker.py` only ever aggregated HERMES's own internal
+log (`logs/reasoning_seed.jsonl`) — it never read any *external* tool's
+session data off disk, which is the actual codeburn pattern (18 tools,
+JSONL/SQLite/protobuf, no proxy/API key). Added `clio/cc_reader.py`: reads
+real Claude Code CLI session JSONL under `~/.claude/projects/`, tolerant
+of malformed lines, degrades to empty (not an error) when the directory
+doesn't exist. `tracker.py` gained `report_all()` merging internal +
+external sources and a `--source {internal,claude-code-cli,all}` CLI flag.
+Tested against a synthetic fixture (3 turns, 2 models, one malformed
+line) — parses correctly, malformed line skipped silently as designed.
+Also tested against this sandbox's real (absent) `~/.claude/projects/` —
+degrades to zero cleanly, no exception.
+
+**What's still open, disclosed rather than silently left out:**
+1. Only 1 of the pattern's original 18 tracked tools is covered
+   (Claude Code CLI). Cursor (SQLite), Gemini (protobuf), and the other
+   ~15 are not implemented — would each need their own reader module
+   following the same `cc_reader.py` shape.
+2. `cc_reader.py`'s parsing of the Claude Code CLI's JSONL schema is
+   **confidence: LIKELY, not CERTAIN** — it's not an officially
+   documented format and could shift between CLI versions. The reader
+   is defensive (skips what it can't parse) but was never validated
+   against a real `~/.claude/projects/` directory, only a synthetic
+   fixture, because none exists on this sandbox.
+3. `MODEL_PRICING_PER_1M` in `cc_reader.py` is a snapshot, explicitly
+   flagged in-code as not guaranteed current — same caveat the existing
+   `TIER_RATES_PER_1K` in `tracker.py` already carried.
+4. No macOS-menubar or GNOME-extension surface was built — out of scope
+   for a CLI-first plugin; the underlying JSON output contract
+   (`report_all()`) is what a future GUI surface would shell out to,
+   same separation-of-concerns the upstream project used.
+
+**Status: CLOSED** for the scope stated above — both patterns went from
+"extracted but not integrated" to "integrated and tested." Item 1 (tool
+coverage breadth) and item 2 (schema confidence) are follow-up work, not
+blockers, and are logged here rather than silently assumed complete.

@@ -63,7 +63,7 @@ import agenda as delegation_agenda
 import repopack
 import fetch as fetcher_fetch
 import oauth_pkce
-import caveman
+import laconic_compress
 import turbo_memory
 import webdev
 import notebooklm
@@ -969,6 +969,7 @@ class TestActiveModulesProvablyRun(HermesTestCase):
         "agenda": "delegation/agenda.py",
         "fetcher": "fetcher/fetch.py",
         "connect": "connect/mcp_client.py",
+        "laconic": "meta/laconic.py",
     }
 
     def _active_modules(self):
@@ -1722,8 +1723,8 @@ class TestSecurityAudit(HermesTestCase):
 # Stage 5 — integrations: each opt-in module + its fallback
 # ---------------------------------------------------------------------------
 class TestIntegrations(HermesTestCase):
-    def test_caveman_keeps_negations(self):
-        out = caveman.compress("this is not the right answer and never was")
+    def test_laconic_compress_keeps_negations(self):
+        out = laconic_compress.compress("this is not the right answer and never was")
         self.assertIn("not", out.split())
         self.assertIn("never", out.split())
         self.assertNotIn("the", out.split())

@@ -2,17 +2,35 @@
 """
 clio/tracker.py — Clio v1: token tracking per session.
 
-Pattern source (reimplemented fresh, no code copied): codeburn pattern —
-18-tool token tracking by READING DISK FILES. No proxy, no request
-interception, no wrapping the Anthropic client. HERMES already writes
-tokens/latency into logs/reasoning_seed.jsonl via brain.py.log_request() —
-Clio's only job is to aggregate what's already on disk.
+Pattern source (reimplemented fresh, no code copied): a third-party
+plugin's 18-tool token-tracking pattern (upstream project name kept out
+of user-facing output per HERMES's rename-on-integration convention —
+see Apollo, Mnemos, Laconic) — READING DISK FILES. No proxy, no request
+interception, no wrapping the Anthropic client.
+
+Two sources, merged:
+  1. internal        — HERMES's own logs/reasoning_seed.jsonl, written by
+     brain.py.log_request(). Always available.
+  2. claude-code-cli  — real session JSONL under ~/.claude/projects/,
+     read by clio/cc_reader.py. Only present on a machine that has
+     actually run the Claude Code CLI locally; degrades to empty, not
+     an error, when absent (e.g. inside a Cowork sandbox).
+
+2026-07-13: previously this file only implemented source (1) despite the
+module description implying the full upstream disk-reading pattern —
+source (2) was the actual missing piece and is what report_all() adds.
 """
 import json
 import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+
+try:
+    from . import cc_reader
+except ImportError:  # running as a script, not a package
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import cc_reader
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent
 REASONING_LOG = HERMES_ROOT / "logs" / "reasoning_seed.jsonl"
@@ -97,14 +115,39 @@ def report(group_by: str = "tier", since: str = None):
     }
 
 
+def report_all(group_by: str = "tier", since: str = None) -> dict:
+    """Merged multi-source report — this is the actual codeburn-pattern
+    parity point: internal HERMES log + real external Claude Code CLI
+    session disk reads, one combined output contract."""
+    internal = report(group_by=group_by, since=since)
+    cc = cc_reader.report_cc_sessions(since=since)
+    return {
+        "internal": internal,
+        "claude_code_cli": cc,
+        "combined_total_tokens": internal["total_tokens"] + cc["total_tokens"],
+        "combined_est_cost_usd": round(
+            internal["est_total_cost_usd"] + cc["est_cost_usd"], 4
+        ),
+    }
+
+
 if __name__ == "__main__":
     group_by = "tier"
     since = None
+    source = "all"
     args = sys.argv[1:]
     for i, a in enumerate(args):
         if a == "--group-by" and i + 1 < len(args):
             group_by = args[i + 1]
         if a == "--since" and i + 1 < len(args):
             since = args[i + 1]
-    result = report(group_by=group_by, since=since)
+        if a == "--source" and i + 1 < len(args):
+            source = args[i + 1]  # internal | claude-code-cli | all
+
+    if source == "internal":
+        result = report(group_by=group_by, since=since)
+    elif source == "claude-code-cli":
+        result = cc_reader.report_cc_sessions(since=since)
+    else:
+        result = report_all(group_by=group_by, since=since)
     print(json.dumps(result, indent=2))

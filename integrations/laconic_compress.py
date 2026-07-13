@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """
-integrations/caveman.py — Caveman mode (Stage 5): aggressive token reduction.
+integrations/laconic_compress.py — Laconic: deterministic bulk-text token
+reduction. Renamed from `caveman.py` 2026-07-13 (was named after the
+upstream extraction's own project name; HERMES's convention is to rename
+on integration — see Apollo, Mnemos, Clio, and meta/laconic.py, the
+per-turn behavioral sibling of this module).
 
-Pattern source (reimplemented fresh, no code copied): the `caveman` extraction
-repo's premise — drop function words, keep content words, to cut tokens on
-bulk/offline work where terseness beats grammar. Distinct from
-output-styles/terse.md (a prompt-level style): this is a deterministic TEXT
-TRANSFORM you can apply to a payload before it goes to a Tier 2 bulk job.
+Pattern source (reimplemented fresh, no code copied): a third-party
+extraction repo's premise — drop function words, keep content words, to
+cut tokens on bulk/offline work where terseness beats grammar. Distinct
+from output-styles/terse.md (a prompt-level style) AND from
+meta/laconic.py (a per-turn LLM-output behavioral hook): this is a
+deterministic TEXT TRANSFORM you can apply to a payload before it goes to
+a Tier 2 bulk job — no model call involved.
 
 Fallback (Invariant #5): it only ever removes tokens from a known stopword
 set and collapses whitespace — it never rewrites content words, so the
@@ -19,8 +25,8 @@ changes meaning — the stopword set deliberately keeps negations ("not",
 "no", "never") for exactly that reason.
 
 CLI:
-    python3 integrations/caveman.py "<text>"        # compressed text
-    python3 integrations/caveman.py --stats "<text>"
+    python3 integrations/laconic_compress.py "<text>"        # compressed text
+    python3 integrations/laconic_compress.py --stats "<text>"
 """
 import json
 import re
@@ -74,5 +80,5 @@ if __name__ == "__main__":
     elif args:
         print(compress(" ".join(args)))
     else:
-        print("usage: caveman.py [--stats] \"<text>\"", file=sys.stderr)
+        print("usage: laconic_compress.py [--stats] \"<text>\"", file=sys.stderr)
         sys.exit(2)

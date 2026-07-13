@@ -39,7 +39,7 @@ HERMES loaded. <PLATFORM> mode.
 ✓ core: create (intake+prompts), research, tasks, documents, webdev, mnemos v1+v2, clio v1, meta/security, curator v1, reasoningbank, dream
 ✓ installed skills: docx, pptx, xlsx, pdf, ui-ux-pro-max (+6 design skills), frontend-design, theme-factory, web-artifacts-builder, webapp-testing, canvas-design (~/.claude/skills)
 ✓ autonomy: cron, delegation, fetcher, connect (Stage 3) | ✓ hardening: tier3 guard, D1 approval tokens, think-scrubber, upstream tracker, 7-layer audit (Stage 4)
-○ opt-in: db, media, caveman, kanban, turbo-memory, notebooklm, composio (Stage 5 — each installs on demand with a fallback)
+✓ laconic (token-reduction: per-turn hook + bulk-text compress, built 2026-07-13) | ○ opt-in: db, media, kanban, turbo-memory, notebooklm, composio (Stage 5 — each installs on demand with a fallback)
 ✗ NYX (Stage 6): out of scope — not built yet
 ```
 
@@ -95,7 +95,7 @@ If any self-check fails, say so plainly in the status line (`✗ brain.py: NOT F
 | pack the repo for review / full-codebase review | `integrations/repopack.py` (pack → 6 reviewer lenses fanned out via delegation) | Active (Stage 5) |
 | open URL / screenshot / browser / scrape / crawl | `fetcher/fetch.py` (SAFE_MODE, SSRF-checked every hop; Tavily/Firecrawl key-gated) | Active (Stage 3) |
 | connect to Slack / GitHub / Notion / external tool | `connect/mcp_client.py` (native MCP + PKCE via `connect/oauth_pkce.py`); connectors ledgered in `integrations/composio.py` | Active (Stage 3) |
-| talk like caveman / be brief / less tokens | `integrations/caveman.py` (deterministic token reduction, keeps negations) or `output-styles/terse.md` | Active (Stage 5) |
+| go laconic / be brief / less tokens | `meta/laconic.py` + `hooks/laconic_mode.sh` (per-turn UserPromptSubmit reinforcement, flag-file state, auto-clarity override) for the live session; `integrations/laconic_compress.py` (deterministic stopword-drop, keeps negations) for a one-off bulk-text payload before a Tier 2 job | Active |
 | explain fully / verbose / step by step | `output-styles/verbose.md` | Active |
 | /help | `commands/help.md` | Active |
 | /status | `commands/status.md` | Active |
@@ -206,7 +206,8 @@ If Bash isn't available or is restricted:
 | Streaming think-block scrubber (P20 state machine) | think_scrubber | 3D | Active (`meta/security/think_scrubber.py`) |
 | Upstream source-repo drift tracker (report-only) | upstream_tracker | 3D | Active (`meta/upstream_tracker.py`) |
 | Repeatable 7-layer security audit | audit.py | 3D | Active (`meta/security/audit.py` — 11 checks, re-runnable) |
-| Opt-in breadth (each with a fallback) | integrations/ | 5 | Active on demand: db, media, caveman, kanban, turbo-memory, notebooklm, composio (webdev promoted to skills/webdev/) |
+| Laconic (token-reduction, per-turn hook + bulk-text compress) | meta/laconic.py, hooks/laconic_mode.sh, integrations/laconic_compress.py | 5 | Active — hook wired unconditionally, mode itself opt-in at runtime via natural-language toggle |
+| Opt-in breadth (each with a fallback) | integrations/ | 5 | Active on demand: db, media, kanban, turbo-memory, notebooklm, composio (webdev promoted to skills/webdev/) |
 | NYX Tier 3 integration | — | 6 | Out of scope — NYX not built yet |
 
 Apollo knows all of these exist. Stages 0–5 are built and unit-tested (174 tests green — 172 pass + 2 environment-conditional skips by design if hnswlib/numpy aren't installed); Stage 0 is proven end-to-end on real disk, the rest at component level. NYX (Stage 6) is deliberately out of scope until NYX itself exists.

@@ -19,7 +19,7 @@ Built by [Anubhav Mohandas](https://github.com/anubhavmohandas), grounded in 1,4
 | 2 (3B) | Mnemos v2 (HNSW + 3-tier hybrid search), Curator v1 (human-gated proposals), ReasoningBank (reward-scored task memory), Dream consolidation | ✅ Built, unit-tested |
 | 3 (3C) | Cron (durable SQLite scheduler, `.tick.lock`, 3-min interrupt, Mnemos write-back), Delegation (≤3 children, forbidden-tool restriction), Fetcher (Tavily/Firecrawl, SAFE_MODE, SSRF-every-hop), Connect (native MCP client + capability negotiation + PKCE OAuth) | ✅ Built, unit-tested · Ollama/Tavily/MCP live paths proven on real infra 2026-07-05; 6 failure modes tested and fail closed, two CLI robustness bugs found and fixed same session; Apollo's "never silently substitute tiers" rule confirmed live under 3 real Tier-2-outage cases including one adversarial-pressure case (`logs/proof_gate4.md`, `logs/proof_failuremode.md`, `logs/proof_apollo_tier_fallback.md`, all local) — real-daemon-kill, genuinely-revoked-key, and multi-turn/jailbreak robustness of the tier rule remain untested |
 | 4 (3D) | Repeatable 7-layer audit, Clio benchmark baseline, Tier-3 routing guard (2nd sensitivity check + EU/US jurisdiction), D1 interactive approval tokens, streaming think-block scrubber, upstream drift tracker | ✅ Built, unit-tested |
-| 5 | Opt-in breadth, each with a fallback: db (Supabase/SQLite + migrations), webdev, media, caveman, kanban, turbo memory (C++/NumPy/Python), NotebookLM, Composio | ✅ Built, unit-tested (opt-in, each with fallback) |
+| 5 | Laconic token-reduction (per-turn hook + bulk-text compress), opt-in breadth each with a fallback: db (Supabase/SQLite + migrations), webdev, media, kanban, turbo memory (C++/NumPy/Python), NotebookLM, Composio | ✅ Built, unit-tested (opt-in, each with fallback) |
 | 6 | NYX integration | ⬜ Out of scope — NYX not built yet |
 
 ## Architecture
@@ -46,7 +46,8 @@ Nothing bypasses Apollo. Nothing bypasses the security gate — it's a `PreToolU
 | **Connect** (`connect/`) | Native MCP stdio client with enforced capability negotiation + `X-Agent-Id` provenance, and an OAuth 2.1 PKCE (S256-only) helper. Server commands run through the same approval gate as everything else. |
 | **Tier-3 guard** (`tier3.py`) | Availability-only fallback selection with an independent second sensitivity check, Chinese-API exclusion, and EU/US jurisdiction filter (fails closed on unknown jurisdiction). Selects; never dispatches. |
 | **Approval tokens** (`meta/security/approval_token.py`) | D1 resolution: a single-use, command-bound, 300s token lets a human approve one specific dangerous command through the otherwise fail-closed hook. |
-| **Opt-in integrations** (`integrations/`) | db, webdev, media, caveman, kanban, turbo memory, NotebookLM, Composio — each independently installable with a verified fallback, none on the critical path. |
+| **Laconic** (`meta/laconic.py`, `integrations/laconic_compress.py`) | Token-reduction: a per-turn hook (flag-file mode toggle, auto-clarity override) for live-session brevity, plus a deterministic stopword-drop compressor for bulk text before a Tier 2 job. |
+| **Opt-in integrations** (`integrations/`) | db, webdev, media, kanban, turbo memory, NotebookLM, Composio — each independently installable with a verified fallback, none on the critical path. |
 
 ## Model routing
 
