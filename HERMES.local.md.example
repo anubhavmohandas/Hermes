@@ -3,14 +3,13 @@
 # Read by Apollo at the start of every session.
 
 PLATFORM: cli
-OLLAMA_MODEL: <set-your-local-model-name>
+NVIDIA_MODEL: <set-your-nvidia-model-name>
 VAULT_PATH: hermes/mnemos/vault
-OLLAMA_CONTEXT: 256000
 
 # Modules currently wired and answering requests.
 # Source of truth is .claude-plugin/plugin.json ("modules.active") — keep these
 # in sync with it; this line is what Apollo reads at session start.
-ACTIVE_MODULES: create, webdev, research, tasks, documents, mnemos-v2, clio-v1, meta/security, curator-v1, reasoningbank, dream, ollama-dispatch, cron, delegation, agenda, fetcher, connect, laconic, occam
+ACTIVE_MODULES: create, webdev, research, tasks, documents, mnemos-v2, clio-v1, meta/security, curator-v1, reasoningbank, dream, nvidia-dispatch, cron, delegation, agenda, fetcher, connect, laconic, occam
 
 # Opt-in integrations — built, but off until you explicitly enable one
 # (plugin.json "modules.opt_in"). None run by default.
@@ -26,7 +25,7 @@ REFLEXION_LOG: hermes/logs/reflexion_seed.json
 # Tier routing — see brain.py for enforcement logic
 TIER_1: claude-sonnet-5
 TIER_1_COMPLEX: claude-opus-4-8
-TIER_2: ollama-local
+TIER_2: nvidia-api
 TIER_3: nyx-fallback  # EU/US jurisdiction only, non-sensitive, availability fallback only
 
 # Hard exclusions — architectural, not configurable

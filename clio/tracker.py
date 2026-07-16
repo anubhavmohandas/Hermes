@@ -39,7 +39,7 @@ REASONING_LOG = HERMES_ROOT / "logs" / "reasoning_seed.jsonl"
 # decision, purely observability. Update as pricing changes.
 TIER_RATES_PER_1K = {
     1: 0.006,   # Tier 1 — Claude API (blended estimate)
-    2: 0.0,     # Tier 2 — Ollama local, no per-token API cost
+    2: 0.001,   # Tier 2 — NVIDIA API (blended estimate; update to your plan's rate)
     3: 0.004,   # Tier 3 — NYX fallback (external, EU/US only)
 }
 

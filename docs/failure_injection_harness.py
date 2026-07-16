@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
 failure_injection_harness.py — the follow-up Gate 4 named as still open in
-its own proof log: Gate 4 proved the three external paths (Ollama, Tavily,
-MCP) work once, under ideal conditions, with a human watching. It said
+its own proof log: Gate 4 proved the three external paths (Tier 2 chat,
+Tavily, MCP) work once, under ideal conditions, with a human watching. It said
 nothing about what happens when they break. This script breaks them on
 purpose and checks whether HERMES fails closed (clean error, no hang, no
 crash, no silent unsafe fallback) or just fails.
 
 Unlike gate4_live_external_harness.py, most of this does NOT need real
 external infra — failure conditions are cheap to manufacture locally:
-  - "Ollama unreachable" = point at a closed port, no daemon needed.
+  - "NVIDIA API unreachable" = point at a closed local port, no network needed.
   - "Tavily key invalid" = a garbage key against the real endpoint (a 401
     is a 401 whether the key was never valid or was revoked).
   - "MCP server misbehaves" = spawn a throwaway local script that plays
     the misbehaving server, no real MCP server needed.
-Only "kill a real Ollama daemon mid-stream" and "revoke a key that was
-previously live" need your actual machine/account — flagged below.
+Only "cut a real in-flight NVIDIA API call" and "revoke a key that was
+previously live" need your actual account — flagged below.
 
 Run:  python3 docs/failure_injection_harness.py
 """
@@ -68,12 +68,15 @@ def run(cmd, timeout):
         return 124, "", "harness timeout — process did not exit", time.monotonic() - start
 
 
-def test_ollama_unreachable():
-    name = "ollama-unreachable"
+def test_nvidia_unreachable():
+    name = "nvidia-unreachable"
     import os
-    env = {**os.environ, "HERMES_OLLAMA_URL": "http://localhost:19999"}
+    # dummy key: the key-presence check runs before the network call, and this
+    # test is about the network failure path, not the missing-key path
+    env = {**os.environ, "HERMES_NVIDIA_URL": "http://localhost:19999",
+           "NVIDIA_API_KEY": "nvapi-harness-dummy"}
     start = time.monotonic()
-    proc = subprocess.run([sys.executable, "ollama_client.py", "chat", "hello", "--model", "x"],
+    proc = subprocess.run([sys.executable, "nvidia_client.py", "chat", "hello", "--model", "x"],
                           cwd=ROOT, capture_output=True, text=True, timeout=20, env=env)
     elapsed = time.monotonic() - start
     ok = (proc.returncode != 0 and "unreachable" in proc.stderr.lower()
@@ -160,7 +163,7 @@ def test_mcp_wedged_timeout():
 
 def main():
     tests = [
-        test_ollama_unreachable,
+        test_nvidia_unreachable,
         test_tavily_invalid_key,
         test_mcp_dangerous_command_blocked,
         test_mcp_garbage_response,
@@ -177,7 +180,7 @@ def main():
         print(f"[{marker}] {name}: {note}")
 
     print("\nNOT covered by this script — needs your real machine/account, not manufacturable locally:")
-    print("  - killing a real running Ollama daemon mid-inflight-call (vs. never-started, tested here)")
+    print("  - cutting a real in-flight NVIDIA API call (vs. unreachable-from-the-start, tested here)")
     print("  - a Tavily key that was genuinely live and got revoked (vs. never-valid, tested here — "
           "same 401 path, but if Tavily ever changes revoked-key response shape this wouldn't catch it)")
     print("  - whether Apollo (SKILL.md, read by a real Claude session) actually obeys 'never silently "

@@ -8,8 +8,8 @@ not per-delta regex. Regex-per-chunk misses tags split across chunk
 boundaries ("<th" in one delta, "ink>" in the next) and re-scanning the
 whole accumulated buffer per delta is O(n²) on long streams.
 
-Why scrub at all: Tier 2/3 models (DeepSeek-R1-style local reasoning models
-on Ollama, some API models) emit <think>…</think> blocks. Reasoning text is
+Why scrub at all: Tier 2/3 models (open-weight reasoning models served via
+the NVIDIA API, some other API models) emit <think>…</think> blocks. Reasoning text is
 (a) not the answer, (b) token bloat if re-ingested by downstream steps, and
 (c) occasionally leaks prompt internals — so it never reaches logs, Mnemos,
 or the terminal.

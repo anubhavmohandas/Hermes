@@ -18,18 +18,18 @@ brain.py keeps two jobs:
 Three policy responsibilities, per HERMES_Architecture.md Layer 1 (defined in
 meta/policy.py):
   1. check_sensitivity(task_description) -> bool
-  2. get_tier(is_sensitive, task_type)   -> int   (1=Claude, 2=Ollama, 3=NYX fallback)
+  2. get_tier(is_sensitive, task_type)   -> int   (1=Claude, 2=NVIDIA API, 3=NYX fallback)
   3. log_request(...)                    -> append to logs/reasoning_seed.jsonl
 
 Also the enforcement check hooks/verify.sh calls:
-  check_model_allowed(tier, model, via) -> (bool allowed, str reason)
+  check_model_allowed(tier, model) -> (bool allowed, str reason)
 
 Reimplemented fresh from extracted patterns (SuperClaude SelfCorrectionEngine #153,
 claude-code-main ModelSource enum, ruflo SPARC fallback chain). No code copied
 from any analyzed repo — patterns only, per project constraint.
 
 CLI usage (what hooks/verify.sh shells out to):
-    python3 brain.py check --task "<description>" [--model NAME] [--via api|local]
+    python3 brain.py check --task "<description>" [--model NAME]
     python3 brain.py log --task-type research --tier 1 --outcome success --success true --tokens 1200 --latency 3200
     python3 brain.py log-failure --task "<description>" --category validation --rule "<prevention rule>"
 """
@@ -43,7 +43,7 @@ HERMES_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERMES_ROOT))
 
 # Policy core lives in the leaf module; re-exported here so callers that import
-# `brain` (ollama_client.py, tier3.py, the CLI below, tests) don't churn.
+# `brain` (nvidia_client.py, tier3.py, the CLI below, tests) don't churn.
 from meta.policy import (  # noqa: E402
     HERMES_ROOT as POLICY_ROOT,  # noqa: F401  (same value; kept for parity)
     LOG_DIR,  # noqa: F401
@@ -71,8 +71,8 @@ from meta.policy import (  # noqa: E402
 def _cmd_check(args):
     is_sensitive = check_sensitivity(args.task)
     task_type = "bulk" if is_bulk_task(args.task) else "default"
-    tier = get_tier(is_sensitive, task_type, via=args.via)
-    allowed, reason = check_model_allowed(tier, args.model, args.via) if args.model else (True, "no model specified — tier computed only")
+    tier = get_tier(is_sensitive, task_type)
+    allowed, reason = check_model_allowed(tier, args.model) if args.model else (True, "no model specified — tier computed only")
 
     result = {
         "sensitive": is_sensitive,
@@ -112,7 +112,6 @@ def main():
     p_check = sub.add_parser("check")
     p_check.add_argument("--task", required=True)
     p_check.add_argument("--model", default=None)
-    p_check.add_argument("--via", default="api", choices=["api", "local"])
     p_check.set_defaults(func=_cmd_check)
 
     p_log = sub.add_parser("log")

@@ -150,8 +150,20 @@ def clarity_override_note() -> str:
     )
 
 
+def visible_banner(label: str, mode: str) -> str:
+    """additionalContext is hidden context, not visible output — this
+    explicitly instructs the model to echo one plain line so activation is
+    actually visible to the user (same fix applied in meta/occam.py)."""
+    return (
+        f'SYSTEM INSTRUCTION: as the very first line of your next reply, '
+        f'output exactly this (nothing before it): "{label} STARTED — mode: {mode}". '
+        f'Then continue your reply normally on the next line.'
+    )
+
+
 def activation_ack(mode: str) -> str:
-    return f"Laconic mode activated ({mode}). Flag written to {FLAG_PATH}."
+    banner = visible_banner("LACONIC", mode)
+    return f"{banner}\n\nLaconic mode activated ({mode}). Flag written to {FLAG_PATH}."
 
 
 def deactivation_ack() -> str:

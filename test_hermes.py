@@ -51,7 +51,7 @@ import consolidate
 import propose
 import approve
 import dream as mnemos_dream
-import ollama_client
+import nvidia_client
 
 # Phase 3C/3D/Stage-5 modules
 import approval_token
@@ -492,36 +492,28 @@ class TestBrainRouting(HermesTestCase):
         for task in ("summarize this meeting", "write hello world", ""):
             self.assertFalse(brain.check_sensitivity(task), task)
 
-    def test_sensitive_via_api_routes_tier1(self):
-        self.assertEqual(brain.get_tier(True, via="api"), 1)
-
-    def test_h2_regression_sensitive_via_local_routes_tier2(self):
-        # H2 (audited 2026-07-02): sensitive + via=local must be Tier 2
-        # (local Ollama IS permitted for sensitive data per both blueprints);
-        # the original forced Tier 1 unconditionally.
-        self.assertEqual(brain.get_tier(True, via="local"), 2)
+    def test_sensitive_routes_tier1_unconditionally(self):
+        # The old sensitive->Tier-2 path (H2) existed only because Tier 2 was
+        # local Ollama. Tier 2 is now the NVIDIA cloud API, so sensitive data
+        # routes to Tier 1 only — for every task type.
+        for task_type in ("default", "bulk"):
+            self.assertEqual(brain.get_tier(True, task_type), 1)
 
     def test_sensitive_never_reaches_tier3(self):
-        for via in ("api", "local"):
-            for task_type in ("default", "bulk"):
-                self.assertNotEqual(brain.get_tier(True, task_type, via=via), 3)
+        for task_type in ("default", "bulk"):
+            self.assertNotEqual(brain.get_tier(True, task_type), 3)
 
     def test_bulk_nonsensitive_routes_tier2(self):
         self.assertEqual(brain.get_tier(False, "bulk"), 2)
         self.assertEqual(brain.get_tier(False, "default"), 1)
 
-    def test_chinese_api_model_exclusion_api_only(self):
-        allowed, reason = brain.check_model_allowed(2, "deepseek-chat", via="api")
-        self.assertFalse(allowed)
-        self.assertIn("excluded", reason)
-        # local open-weight builds are exempt by design
-        allowed, _ = brain.check_model_allowed(2, "deepseek-r1:14b", via="local")
-        self.assertTrue(allowed)
-
-    def test_tier1_requires_api(self):
-        allowed, _ = brain.check_model_allowed(1, "llama3", via="local")
-        self.assertFalse(allowed)
-        allowed, _ = brain.check_model_allowed(1, "claude-sonnet-5", via="api")
+    def test_chinese_api_model_exclusion_all_tiers(self):
+        # every tier is a remote API now — no local exemption remains
+        for model in ("deepseek-chat", "deepseek-r1:14b", "moonshot-v1"):
+            allowed, reason = brain.check_model_allowed(2, model)
+            self.assertFalse(allowed, model)
+            self.assertIn("excluded", reason)
+        allowed, _ = brain.check_model_allowed(1, "claude-sonnet-5")
         self.assertTrue(allowed)
 
 
@@ -626,7 +618,7 @@ class TestMemoryTypes(HermesTestCase):
         for content in (
             "refactor brain.py to add a caching layer",
             "the FTS5 index needs rebuilding after the migration",
-            "add a retry loop around the ollama call",
+            "add a retry loop around the nvidia api call",
         ):
             self.assertEqual(store.classify_memory_type(content, "user"), "project", content)
 
@@ -852,14 +844,14 @@ class TestCuratorLoop(HermesTestCase):
 
 
 # ---------------------------------------------------------------------------
-# B1 — embedder backends (ollama path fully mocked; no live server needed)
+# B1 — embedder backends (nvidia path fully mocked; no live API needed)
 # ---------------------------------------------------------------------------
 @unittest.skipUnless(hnsw_index.HNSW_AVAILABLE, "hnswlib/numpy not installed")
 class TestEmbedderBackends(HermesTestCase):
     def setUp(self):
         self.embedder = hnsw_index.embedder
-        self.embedder._ollama_dim_cache.clear()
-        self.addCleanup(self.embedder._ollama_dim_cache.clear)
+        self.embedder._nvidia_dim_cache.clear()
+        self.addCleanup(self.embedder._nvidia_dim_cache.clear)
 
     def test_default_backend_is_hash(self):
         with mock.patch.dict("os.environ", {}, clear=False):
@@ -873,19 +865,26 @@ class TestEmbedderBackends(HermesTestCase):
             with self.assertRaises(ValueError):
                 self.embedder.backend()
 
-    def test_ollama_backend_normalizes_and_reports_dim(self):
+    def test_nvidia_backend_normalizes_and_reports_dim(self):
         import numpy as np
-        with mock.patch.dict("os.environ", {"HERMES_EMBEDDER": "ollama"}), \
-             mock.patch.object(self.embedder, "_ollama_embed_raw", return_value=[3.0, 4.0]):
+        with mock.patch.dict("os.environ", {"HERMES_EMBEDDER": "nvidia"}), \
+             mock.patch.object(self.embedder, "_nvidia_embed_raw", return_value=[3.0, 4.0]):
             self.assertEqual(self.embedder.embedding_dim(), 2)
             v = self.embedder.embed("hello")
             self.assertAlmostEqual(float(np.linalg.norm(v)), 1.0, places=5)
             self.assertAlmostEqual(float(v[0]), 0.6, places=5)  # 3/5, 4/5
 
-    def test_ollama_unreachable_fails_loud_not_silent_hash_fallback(self):
-        import urllib.error
-        with mock.patch.dict("os.environ", {"HERMES_EMBEDDER": "ollama",
-                                             "HERMES_OLLAMA_URL": "http://localhost:1"}):
+    def test_nvidia_missing_key_fails_loud_not_silent_hash_fallback(self):
+        env = {"HERMES_EMBEDDER": "nvidia", "NVIDIA_API_KEY": ""}
+        with mock.patch.dict("os.environ", env):
+            with self.assertRaises(RuntimeError) as ctx:
+                self.embedder.embed("hello")
+            self.assertIn("NOT falling back", str(ctx.exception))
+
+    def test_nvidia_unreachable_fails_loud_not_silent_hash_fallback(self):
+        env = {"HERMES_EMBEDDER": "nvidia", "NVIDIA_API_KEY": "test-key"}
+        with mock.patch.dict("os.environ", env), \
+             mock.patch.object(self.embedder, "NVIDIA_URL", "http://localhost:1"):
             with self.assertRaises(RuntimeError) as ctx:
                 self.embedder.embed("hello")
             self.assertIn("NOT falling back", str(ctx.exception))
@@ -895,57 +894,79 @@ class TestEmbedderBackends(HermesTestCase):
         idx = hnsw_index.MnemosHNSW(d, max_elements=10)  # built under hash/256
         idx.insert("some text")
         idx.save()
-        with mock.patch.dict("os.environ", {"HERMES_EMBEDDER": "ollama"}), \
-             mock.patch.object(self.embedder, "_ollama_embed_raw", return_value=[0.0] * 768):
+        with mock.patch.dict("os.environ", {"HERMES_EMBEDDER": "nvidia"}), \
+             mock.patch.object(self.embedder, "_nvidia_embed_raw", return_value=[0.0] * 1024):
             with self.assertRaises(RuntimeError) as ctx:
                 hnsw_index.MnemosHNSW(d)
             self.assertIn("rebuild", str(ctx.exception))
 
 
 # ---------------------------------------------------------------------------
-# B0 — Tier 2 dispatch (ollama_client), fully mocked
+# B0 — Tier 2 dispatch (nvidia_client), fully mocked
 # ---------------------------------------------------------------------------
-class TestOllamaClient(HermesTestCase):
+class TestNvidiaClient(HermesTestCase):
     def test_env_model_wins_over_local_md(self):
-        with mock.patch.dict("os.environ", {"HERMES_OLLAMA_MODEL": "llama3.3:70b"}):
-            self.assertEqual(ollama_client.load_local_model(), "llama3.3:70b")
+        with mock.patch.dict("os.environ", {"HERMES_NVIDIA_MODEL": "meta/llama-3.3-70b-instruct"}):
+            self.assertEqual(nvidia_client.load_local_model(), "meta/llama-3.3-70b-instruct")
 
     def test_placeholder_model_treated_as_unset(self):
-        # HERMES.local.md ships with "<set-your-local-model-name>"
+        # HERMES.local.md ships with "<set-your-nvidia-model-name>"
         with mock.patch.dict("os.environ", {}, clear=False):
             import os
-            os.environ.pop("HERMES_OLLAMA_MODEL", None)
-            model = ollama_client.load_local_model()
+            os.environ.pop("HERMES_NVIDIA_MODEL", None)
+            model = nvidia_client.load_local_model()
             self.assertFalse(model.startswith("<"))
 
+    def test_status_reports_honestly_when_key_missing(self):
+        with mock.patch.dict("os.environ", {"NVIDIA_API_KEY": ""}):
+            s = nvidia_client.status()
+            self.assertFalse(s["tier2_ready"])
+            self.assertIn("NVIDIA_API_KEY", s["note"])
+
     def test_status_reports_honestly_when_down(self):
-        with mock.patch.object(ollama_client, "is_available", return_value=False):
-            s = ollama_client.status()
+        with mock.patch.dict("os.environ", {"NVIDIA_API_KEY": "test-key"}), \
+             mock.patch.object(nvidia_client, "is_available", return_value=False):
+            s = nvidia_client.status()
             self.assertFalse(s["tier2_ready"])
             self.assertIn("unreachable", s["note"])
 
     def test_chat_refuses_without_model(self):
-        with mock.patch.object(ollama_client, "load_local_model", return_value=""):
+        with mock.patch.object(nvidia_client, "load_local_model", return_value=""):
             with self.assertRaises(RuntimeError) as ctx:
-                ollama_client.chat("hello")
+                nvidia_client.chat("hello")
             self.assertIn("no model", str(ctx.exception))
 
+    def test_chat_refuses_without_api_key(self):
+        with mock.patch.dict("os.environ", {"NVIDIA_API_KEY": ""}):
+            with self.assertRaises(RuntimeError) as ctx:
+                nvidia_client.chat("hello", model="meta/llama-3.3-70b-instruct")
+            self.assertIn("NVIDIA_API_KEY", str(ctx.exception))
+
     def test_chat_returns_loggable_fields(self):
-        fake = {"message": {"content": "hi there"}, "model": "llama3.3",
-                "prompt_eval_count": 10, "eval_count": 25}
-        with mock.patch.object(ollama_client, "_post", return_value=fake):
-            out = ollama_client.chat("hello", model="llama3.3")
+        fake = {"choices": [{"message": {"content": "hi there"}}],
+                "model": "meta/llama-3.3-70b-instruct",
+                "usage": {"total_tokens": 35}}
+        with mock.patch.dict("os.environ", {"NVIDIA_API_KEY": "test-key"}), \
+             mock.patch.object(nvidia_client, "_post", return_value=fake):
+            out = nvidia_client.chat("hello", model="meta/llama-3.3-70b-instruct")
         self.assertEqual(out["content"], "hi there")
         self.assertEqual(out["tokens"], 35)
         self.assertIn("latency_ms", out)
 
     def test_chat_surfaces_unreachable_instead_of_tier_swapping(self):
         import urllib.error
-        with mock.patch.object(ollama_client, "_post",
+        with mock.patch.dict("os.environ", {"NVIDIA_API_KEY": "test-key"}), \
+             mock.patch.object(nvidia_client, "_post",
                                side_effect=urllib.error.URLError("connection refused")):
             with self.assertRaises(RuntimeError) as ctx:
-                ollama_client.chat("hello", model="llama3.3")
+                nvidia_client.chat("hello", model="meta/llama-3.3-70b-instruct")
             self.assertIn("Tier 2 is down", str(ctx.exception))
+
+    def test_chat_refuses_excluded_model(self):
+        with mock.patch.dict("os.environ", {"NVIDIA_API_KEY": "test-key"}):
+            with self.assertRaises(RuntimeError) as ctx:
+                nvidia_client.chat("hello", model="deepseek-ai/deepseek-r1")
+            self.assertIn("refused by brain.py", str(ctx.exception))
 
 
 # ---------------------------------------------------------------------------
@@ -964,7 +985,7 @@ class TestActiveModulesProvablyRun(HermesTestCase):
         "curator-v1": "curator/propose.py",
         "reasoningbank": "reasoningbank/bank.py",
         "dream": "mnemos/dream.py",
-        "ollama-dispatch": "ollama_client.py",
+        "nvidia-dispatch": "nvidia_client.py",
         "cron": "cron/scheduler.py",
         "delegation": "delegation/dispatch.py",
         "agenda": "delegation/agenda.py",
@@ -1611,7 +1632,7 @@ class TestTier3(HermesTestCase):
 
     def test_chain_contains_no_excluded_models(self):
         for entry in tier3.TIER3_CHAIN:
-            allowed, _ = brain.check_model_allowed(3, entry["model"], via="api")
+            allowed, _ = brain.check_model_allowed(3, entry["model"])
             self.assertTrue(allowed, f"{entry['model']} must not be an excluded model")
 
     def test_second_sensitivity_check_is_independent(self):
@@ -1898,9 +1919,9 @@ class TestExecutionTrace(HermesTestCase):
         self.assertEqual(by_model["claude-opus-4-8"]["count"], 2)
         self.assertEqual(by_model["claude-opus-4-8"]["tokens"], 1500)
         # cost comes from each entry's own tier even when grouping by model:
-        # Tier 1 rate 0.006/1k * 1.5k = 0.009; Tier 2 (local) is free.
+        # Tier 1 rate 0.006/1k * 1.5k = 0.009; Tier 2 (NVIDIA) 0.001/1k * 4k.
         self.assertAlmostEqual(by_model["claude-opus-4-8"]["est_cost_usd"], 0.009, places=4)
-        self.assertEqual(by_model["llama3"]["est_cost_usd"], 0.0)
+        self.assertAlmostEqual(by_model["llama3"]["est_cost_usd"], 0.004, places=4)
 
     def test_clio_coerces_missing_group_key_to_unknown(self):
         by_model = clio_tracker.aggregate([{"tier": 1, "tokens": 10}], group_by="model")

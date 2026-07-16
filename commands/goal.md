@@ -87,7 +87,7 @@ package what's already built.
 
 - **STAGE 4 — Hardening** *(v1 Ph4 / 3D — NOT started)*
   Repeatable 7-layer audit; benchmarks in Clio (tokens/tier, latency, recall);
-  REAL embedder (Ollama `nomic-embed-text`) behind `embed()`; NYX Tier 3
+  REAL embedder (NVIDIA API `nv-embedqa-e5-v5`) behind `embed()`; NYX Tier 3
   fallback with jurisdiction + 2nd sensitivity check (never sensitive data);
   resolve D1 (interactive approval for sudo/force-push/DROP TABLE);
   think-block scrubber; upstream tracker.

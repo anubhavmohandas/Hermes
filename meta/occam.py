@@ -341,6 +341,20 @@ def _json_dumps(s: str) -> str:
     return json.dumps(s)
 
 
+# --- Visible banner -----------------------------------------------------
+# additionalContext (SessionStart or UserPromptSubmit) is fed to the model
+# as hidden context — it does NOT print anything the user can see on its
+# own. To make activation visible, the injected text explicitly instructs
+# the model to echo one plain line at the top of its next reply.
+
+def visible_banner(label: str, mode: str) -> str:
+    return (
+        f'SYSTEM INSTRUCTION: as the very first line of your next reply, '
+        f'output exactly this (nothing before it): "{label} STARTED — mode: {mode}". '
+        f'Then continue your reply normally on the next line.'
+    )
+
+
 # --- SessionStart entrypoint --------------------------------------------
 
 def handle_session_start() -> str:
@@ -349,7 +363,8 @@ def handle_session_start() -> str:
         clear_flag()
         return ""
     safe_write_flag(mode)
-    return build_injected_context(mode) + statusline_nudge()
+    banner = visible_banner("OCCAM", mode)
+    return f"{banner}\n\n{build_injected_context(mode)}{statusline_nudge()}"
 
 
 # --- UserPromptSubmit entrypoint ----------------------------------------
@@ -365,10 +380,12 @@ def handle_turn(prompt: str) -> str | None:
         return "OCCAM MODE OFF"
     if kind == "set":
         safe_write_flag(arg)
-        return f"OCCAM MODE CHANGED — level: {arg}\n\n{build_injected_context(arg)}"
+        banner = visible_banner("OCCAM", arg)
+        return f"{banner}\n\nOCCAM MODE CHANGED — level: {arg}\n\n{build_injected_context(arg)}"
     if kind == "review":
         safe_write_flag("review")
-        return f"OCCAM MODE CHANGED — level: review\n\n{build_injected_context('review')}"
+        banner = visible_banner("OCCAM", "review")
+        return f"{banner}\n\nOCCAM MODE CHANGED — level: review\n\n{build_injected_context('review')}"
     if kind == "report":
         mode = read_flag() or default_mode()
         return f"OCCAM MODE ACTIVE — level: {mode}"

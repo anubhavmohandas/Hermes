@@ -14,10 +14,10 @@ RAM-first pipeline — three confidence tiers, confidence-stratified resolution.
   Tier C — Semantic HNSW: mnemos/hnsw_index.py. Backend depends on
            HERMES_EMBEDDER (see embedder.py): "hash" (default) is the
            hashing-trick vectorizer — treat those hits as "lexical-overlap
-           adjacent," NOT "conceptually similar"; "ollama" is a real
-           embedding model (nomic-embed-text). Tier C confidence stays LOW
-           under both until the ollama backend has earned trust on real
-           recall data.
+           adjacent," NOT "conceptually similar"; "nvidia" is a real
+           embedding model (nv-embedqa-e5-v5 via the NVIDIA API). Tier C
+           confidence stays LOW under both until the nvidia backend has
+           earned trust on real recall data.
 
 Confidence-stratified resolution: a concrete, inspectable rule set — not a
 vibe. See `resolve_confidence()`.
@@ -113,8 +113,8 @@ def resolve_confidence(query, tier_a, tier_b, tier_c):
         strong = _distinct_query_words_in(tier_a[0].get("content", ""), query) >= 2
         return ("HIGH" if strong else "MEDIUM"), "tier_a_bm25", "FTS5 lexical match"
     if tier_c and tier_c[0]["similarity"] >= 0.45:
-        if HNSW_AVAILABLE and hnsw_backend() == "ollama":
-            reason_c = "semantic embedding match (ollama backend) — conceptually similar, still verify before relying on it"
+        if HNSW_AVAILABLE and hnsw_backend() == "nvidia":
+            reason_c = "semantic embedding match (nvidia backend) — conceptually similar, still verify before relying on it"
         else:
             reason_c = "hashing-trick lexical-overlap embedder — not true semantic similarity, verify before relying on it"
         return "LOW", "tier_c_semantic", reason_c

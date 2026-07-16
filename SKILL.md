@@ -24,7 +24,7 @@ User → Apollo → brain.py (tier) → [verify.sh fires automatically as a PreT
 
 ## 1. Session start — run this once, every session
 
-1. **Read `HERMES.local.md`** (same directory as this file). It tells you: platform (cli/cowork), Ollama model name, vault path, active vs inactive modules, log paths, tier model names.
+1. **Read `HERMES.local.md`** (same directory as this file). It tells you: platform (cli/cowork), NVIDIA model name, vault path, active vs inactive modules, log paths, tier model names.
 2. **Detect environment.** If the Bash tool is available and behaves like a real shell, you're in CLI mode. If Bash is absent or restricted, you're in Cowork mode — degrade gracefully (see §6).
 3. **Self-check.** Confirm these are reachable before claiming they're active:
    - `python3 brain.py check --task "self-check" --model <TIER_1 model>` returns valid JSON
@@ -57,7 +57,7 @@ If any self-check fails, say so plainly in the status line (`✗ brain.py: NOT F
 2. Build a short task description string and run:
    `python3 brain.py check --task "<description>" --model "<model you're about to use>" --via api|local`
    Read the JSON back. If `allowed: false`, stop — do not route, do not retry with a different model silently. Tell the user which tier this requires and why.
-   **If the tier comes back 2 and the platform is CLI:** dispatch the model call through `python3 ollama_client.py chat "<prompt>" [--model NAME]` — this is the actual Tier 2 path (local Ollama, data never leaves the machine). Check readiness first with `python3 ollama_client.py status`; if `tier2_ready` is false, say so and ask the user whether to run on Tier 1 instead — never silently substitute tiers, in either direction. Tokens/latency from the response feed step 2-after's logging.
+   **If the tier comes back 2 and the platform is CLI:** dispatch the model call through `python3 nvidia_client.py chat "<prompt>" [--model NAME]` — this is the actual Tier 2 path (NVIDIA API, bulk/cost-sensitive tasks only; it is a remote cloud API, so sensitive tasks never route here). Check readiness first with `python3 nvidia_client.py status`; if `tier2_ready` is false, say so and ask the user whether to run on Tier 1 instead — never silently substitute tiers, in either direction. Tokens/latency from the response feed step 2-after's logging.
 3. **Retrieve prior high-reward approaches** for tasks that look similar to this one:
    `python3 reasoningbank/bank.py retrieve "<description>" 5 0.8`
    If it returns hits, they're past approaches that scored reward > 0.8 on a similar task — use them as a starting point, not gospel. If it returns nothing, that's normal (the bank starts empty and only has what's actually been logged) — don't treat an empty result as an error.
@@ -117,7 +117,7 @@ Mnemos is now 3-tier hybrid retrieval (`mnemos/hybrid_search.py`), not just lexi
 - **Tier B (regex):** structured pattern matching (CVE IDs, file paths, function-like identifiers) scanned directly against stored content — independent of FTS5 tokenization.
 - **Tier C (semantic HNSW):** `mnemos/hnsw_index.py`, backed by `mnemos/embedder.py`.
 
-**Be straight with the user about Tier C.** The embedder has two backends (`HERMES_EMBEDDER` env var, see `mnemos/embedder.py`). Default `hash`: a deterministic hashing-trick bag-of-words/char-n-gram vectorizer, NOT a trained semantic model — it catches lexical overlap and partial substring matches (e.g. shared CVE IDs), not paraphrase or conceptual similarity; "logical qubit fault tolerance" will NOT reliably match "quantum error correction". Under `hash`, never describe a Tier C hit as "HERMES remembered the meaning of X" — it found word/trigram overlap. Opt-in `ollama`: real semantic embeddings via `nomic-embed-text` (requires a running Ollama; fails loudly rather than silently degrading, because mixing the two embedding spaces would corrupt the index — `hnsw_index.py` records the backend in its meta sidecar and refuses to load a mismatched index). Tier C confidence stays capped at LOW under both backends until the ollama backend has earned trust on real recall data.
+**Be straight with the user about Tier C.** The embedder has two backends (`HERMES_EMBEDDER` env var, see `mnemos/embedder.py`). Default `hash`: a deterministic hashing-trick bag-of-words/char-n-gram vectorizer, NOT a trained semantic model — it catches lexical overlap and partial substring matches (e.g. shared CVE IDs), not paraphrase or conceptual similarity; "logical qubit fault tolerance" will NOT reliably match "quantum error correction". Under `hash`, never describe a Tier C hit as "HERMES remembered the meaning of X" — it found word/trigram overlap. Opt-in `nvidia`: real semantic embeddings via the NVIDIA API (`nv-embedqa-e5-v5`; requires NVIDIA_API_KEY; fails loudly rather than silently degrading, because mixing the two embedding spaces would corrupt the index — `hnsw_index.py` records the backend in its meta sidecar and refuses to load a mismatched index). Tier C confidence stays capped at LOW under both backends until the nvidia backend has earned trust on real recall data.
 
 Usage:
 - Write every meaningful exchange: `python3 mnemos/store.py write "<session_id>" "<role>" "<content>" [memory_type]` AND `python3 mnemos/hnsw_index.py mnemos/vault/hnsw insert "<content>"` — both stores, so all 3 tiers can find it later. Each message carries one of the blueprint's 4 memory types (`user` / `feedback` / `project` / `reference`); omit the argument and `store.py` classifies deterministically (keyword rules, not LLM — same philosophy as brain.py's sensitivity check). Pass it explicitly when you know better than the heuristic.
@@ -170,9 +170,9 @@ If Bash isn't available or is restricted:
 
 ## 9. Hard constraints — non-negotiable, carry forward verbatim
 
-- **Chinese APIs excluded permanently, via API only:** Kimi (Moonshot AI), GLM (Zhipu AI), MiMo (Xiaomi), MiniMax, DeepSeek. No exceptions, no sanitization layer, no opt-in toggle. Open-weight versions running locally on Ollama (Tier 2) are NOT excluded — data never leaves the machine.
+- **Chinese APIs excluded permanently:** Kimi (Moonshot AI), GLM (Zhipu AI), MiMo (Xiaomi), MiniMax, DeepSeek. No exceptions, no sanitization layer, no opt-in toggle. Every tier is a remote API now, so the exclusion applies on all tiers — including DeepSeek-family models served through the NVIDIA API.
 - **HERMES never auto-applies updates.** Curator proposals land in `curator/pending/` for human review — this is a real, working mechanism now (§4b), not a stated intention. Never call `curator/approve.py` yourself. Never act on a self-generated change without the user approving it first.
-- **Sensitive data** (CVEs, recon output, pentest notes, HERMES/SAGE/NYX internals) routes to Tier 1 (Claude API) or Tier 2 (local Ollama) only. Never Tier 3, regardless of availability or cost.
+- **Sensitive data** (CVEs, recon output, pentest notes, HERMES/SAGE/NYX internals) routes to Tier 1 (Claude API) ONLY — Tier 2 stopped being a valid sensitive destination when it became the remote NVIDIA API. Never Tier 2 or 3, regardless of availability or cost.
 - **Never copy-paste executable code from any analyzed repository** referenced in `CC_SRC_PATTERNS.md` — patterns only, reimplemented fresh. This applies to Apollo's own future self-modification suggestions too.
 - **No secrets in output.** `meta/security/redact.py` scrubs known secret patterns from anything written to logs or displayed — but don't rely on it as your only check. If you're about to print something that looks like a key or token, redact it yourself first.
 
@@ -184,7 +184,7 @@ If Bash isn't available or is restricted:
 |---|---|---|---|
 | Orchestration/routing | Apollo | 3A | Active (this file) |
 | Tier classification + logging | brain.py | 3A | Active |
-| Tier 2 dispatch (local Ollama, `/api/chat`) | ollama_client.py | 3B | Active (requires Ollama running + OLLAMA_MODEL set — `status` subcommand reports readiness) |
+| Tier 2 dispatch (NVIDIA API, `/v1/chat/completions`) | nvidia_client.py | 3B | Active (requires NVIDIA_API_KEY + NVIDIA_MODEL set — `status` subcommand reports readiness) |
 | 7-layer security gate | meta/security/ | 3A | Active. Layer 4: scans Write/Edit skill content, and **blocks** bash writes to skill paths (redirect/tee/cp/sed -i/curl -o) since their content can't be verified from the command string. Layer 6: scans bash exec-path *structure* (magic bytes, setuid) — not script logic. SessionStart sweep is **detection-only/advisory** (SessionStart hooks cannot block a session), covering out-of-band edits to skills/, SKILL.md, .claude-plugin/. |
 | Session store (SQLite WAL+FTS5, 4 memory types) | Mnemos v1 | 3A | Active |
 | MEMORY.md index caps | Mnemos v1 | 3A | Active |

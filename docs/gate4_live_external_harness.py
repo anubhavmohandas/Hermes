@@ -6,9 +6,9 @@ actually work against live infrastructure, not just unit-tested against
 mocks or "file exists" checks.
 
 Why this exists (read before running): test_hermes.py exercises
-ollama_client.py, fetcher/fetch.py, and connect/mcp_client.py with no
+nvidia_client.py, fetcher/fetch.py, and connect/mcp_client.py with no
 network calls — status()/dry-run paths, argument parsing, brain.py's
-allow/deny logic. None of that proves a real Ollama server answers a real
+allow/deny logic. None of that proves the real NVIDIA API answers a real
 chat request, a real search API returns real results, or a real MCP server
 completes capability negotiation over stdio. This script makes those three
 live calls and refuses to report a pass unless it got a genuine external
@@ -16,15 +16,15 @@ response. It will NOT fabricate a result if a leg is unconfigured — it
 reports SKIPPED with the reason, same as fetch.py's own "results are never
 faked" rule.
 
-This is deliberately NOT part of test_hermes.py: it needs a running Ollama
-daemon, a real TAVILY_API_KEY or FIRECRAWL_API_KEY, and a real MCP server
+This is deliberately NOT part of test_hermes.py: it needs a real
+NVIDIA_API_KEY, a real TAVILY_API_KEY or FIRECRAWL_API_KEY, and a real MCP server
 binary on PATH — none of which belong in an offline unit suite, and none of
 which exist in a sandboxed CI/Cowork environment. Run this on the machine
 that actually has that infrastructure (mirrors Gate 0: FUSE-mounted sandbox
 != real disk; this is the same shape of gap for network services).
 
 Three legs, each independently pass/fail/skip:
-  1. ollama   — ollama_client.py status, then a real chat() call
+  1. nvidia   — nvidia_client.py status, then a real chat() call
   2. fetcher  — fetcher/fetch.py status, then a real search() call
                 (Tavily first, Firecrawl fallback — whichever key is set)
   3. connect  — connect/mcp_client.py status, then tools-list against a
@@ -32,9 +32,9 @@ Three legs, each independently pass/fail/skip:
 
 Run:
     python3 docs/gate4_live_external_harness.py
-    python3 docs/gate4_live_external_harness.py --ollama-model llama3.2
+    python3 docs/gate4_live_external_harness.py --nvidia-model meta/llama-3.3-70b-instruct
     python3 docs/gate4_live_external_harness.py --mcp-server "npx -y @modelcontextprotocol/server-filesystem /tmp"
-    python3 docs/gate4_live_external_harness.py --skip-ollama --skip-connect   # e.g. search-only pass
+    python3 docs/gate4_live_external_harness.py --skip-nvidia --skip-connect   # e.g. search-only pass
 
 Exit code: 0 only if every non-skipped leg passed. SKIPPED legs do not fail
 the run (they're infra gaps, not code bugs) but ARE printed loudly and MUST
@@ -67,9 +67,9 @@ def run_cli(args, timeout):
         return 124, "", f"timed out after {timeout}s", int(timeout * 1000)
 
 
-def leg_ollama(model, timeout):
-    name = "ollama"
-    rc, out, err, _ = run_cli(["ollama_client.py", "status"], timeout=10)
+def leg_nvidia(model, timeout):
+    name = "nvidia"
+    rc, out, err, _ = run_cli(["nvidia_client.py", "status"], timeout=10)
     if rc != 0:
         return name, "FAIL", f"status check failed: {err.strip()}", None
     try:
@@ -81,13 +81,13 @@ def leg_ollama(model, timeout):
         pass  # keep going — chat() will produce the authoritative error either way
 
     prompt = "Reply with exactly the single word: PONG"
-    args = ["ollama_client.py", "chat", prompt]
+    args = ["nvidia_client.py", "chat", prompt]
     if model:
         args += ["--model", model]
     rc, out, err, latency_ms = run_cli(args, timeout=timeout)
     if rc != 0:
         low = err.lower()
-        if "unreachable" in low or "no model given" in low or "not pulled" in low:
+        if "unreachable" in low or "no model given" in low or "nvidia_api_key" in low:
             return name, "SKIPPED", err.strip(), None
         return name, "FAIL", err.strip(), latency_ms
     try:
@@ -157,19 +157,19 @@ def leg_connect(server_cmd, timeout):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--ollama-model", default=None)
+    p.add_argument("--nvidia-model", default=None)
     p.add_argument("--search-query", default="what is the capital of France")
     p.add_argument("--mcp-server", default=None,
                    help='e.g. "npx -y @modelcontextprotocol/server-filesystem /tmp"')
     p.add_argument("--timeout", type=float, default=60.0)
-    p.add_argument("--skip-ollama", action="store_true")
+    p.add_argument("--skip-nvidia", action="store_true")
     p.add_argument("--skip-fetcher", action="store_true")
     p.add_argument("--skip-connect", action="store_true")
     args = p.parse_args()
 
     legs = []
-    if not args.skip_ollama:
-        legs.append(leg_ollama(args.ollama_model, args.timeout))
+    if not args.skip_nvidia:
+        legs.append(leg_nvidia(args.nvidia_model, args.timeout))
     if not args.skip_fetcher:
         legs.append(leg_fetcher(args.search_query, args.timeout))
     if not args.skip_connect:

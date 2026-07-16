@@ -8,7 +8,7 @@ Stage 4 item 4: fallback chain Mistral → Gemini → GPT-4o, EU/US jurisdiction
 check, and a SECOND sensitivity check before any Tier 3 route.
 
 Tier 3 exists for exactly one situation: Tier 1 (Claude API) and Tier 2
-(local Ollama) are BOTH unavailable and the task is NOT sensitive. It is an
+(NVIDIA API) are BOTH unavailable and the task is NOT sensitive. It is an
 availability fallback, never a preference, never a cost optimization.
 
 Defense in depth, in order, all mandatory:
@@ -70,7 +70,7 @@ def route(task_description: str, available=None):
         if available is not None and model not in available:
             continue
         # 2. Chinese-API exclusion, same enforcement path as every tier.
-        allowed, reason = brain.check_model_allowed(3, model, via="api")
+        allowed, reason = brain.check_model_allowed(3, model)
         if not allowed:
             continue
         # 3. Jurisdiction — fail closed on anything not explicitly EU/US.

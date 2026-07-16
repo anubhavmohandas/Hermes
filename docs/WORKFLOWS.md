@@ -51,34 +51,28 @@ Classification is rule-based and inspectable — see `store.classify_memory_type
 ## Workflow 2 — route a sensitive vs. a bulk request (Apollo / brain.py)
 
 Tier routing is deterministic policy, not a model's judgment. Sensitivity is a
-hard keyword match; the tier follows from sensitivity + how the request is
-being served (`--via api` vs `--via local`).
+hard keyword match; the tier follows from sensitivity + task type.
 
 ```bash
-# sensitive (CVE) served via the API -> pinned to Tier 1 (Claude API)
+# sensitive (CVE) -> pinned to Tier 1 (Claude API), no exceptions
 python3 brain.py check --task "analyze CVE-2025-1234 exploit chain in these recon notes" \
-                       --model claude-opus-4-8 --via api
+                       --model claude-opus-4-8
 
-# the SAME sensitive task served locally -> Tier 2 (local Ollama) is permitted
-python3 brain.py check --task "analyze CVE-2025-1234 exploit chain in these recon notes" \
-                       --via local
-
-# non-sensitive bulk work -> Tier 2
-python3 brain.py check --task "summarize 200 changelog entries, bulk offline" --via api
+# non-sensitive bulk work -> Tier 2 (NVIDIA API)
+python3 brain.py check --task "summarize 200 changelog entries, bulk offline"
 ```
 
 Real output:
 
 ```json
-{"sensitive": true,  "task_type": "default", "tier": 1, "tier_name": "Tier 1 — Claude API",   "model": "claude-opus-4-8", "allowed": true, "reason": "ALLOWED"}
-{"sensitive": true,  "task_type": "default", "tier": 2, "tier_name": "Tier 2 — Ollama local", "model": null, "allowed": true, "reason": "no model specified — tier computed only"}
-{"sensitive": false, "task_type": "bulk",    "tier": 2, "tier_name": "Tier 2 — Ollama local", "model": null, "allowed": true, "reason": "no model specified — tier computed only"}
+{"sensitive": true,  "task_type": "default", "tier": 1, "tier_name": "Tier 1 — Claude API", "model": "claude-opus-4-8", "allowed": true, "reason": "ALLOWED"}
+{"sensitive": false, "task_type": "bulk",    "tier": 2, "tier_name": "Tier 2 — NVIDIA API", "model": null, "allowed": true, "reason": "no model specified — tier computed only"}
 ```
 
-What to notice: sensitive data can go to Tier 1 **or** local Tier 2, but never
-Tier 3 (NYX) — and the second call proves local is a legitimate route for
-CVE/recon work. Tier 3's independent re-check (`tier3.py`) is what keeps
-sensitive data off the external fallback even under availability pressure.
+What to notice: sensitive data goes to Tier 1 ONLY — never Tier 2 (a remote
+cloud API since the NVIDIA swap) and never Tier 3 (NYX). Tier 3's independent
+re-check (`tier3.py`) is what keeps sensitive data off the external fallback
+even under availability pressure.
 
 ---
 

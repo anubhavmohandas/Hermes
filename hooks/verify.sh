@@ -72,10 +72,9 @@ fi
 [ -z "$TASK_DESC" ] && TASK_DESC="$TOOL_NAME"
 
 MODEL="${HERMES_MODEL:-claude-sonnet-5}"
-VIA="${HERMES_MODEL_VIA:-api}"
 
 # --- Layer A: brain.py tier / sensitivity check ---
-BRAIN_OUT=$(python3 "$BRAIN" check --task "$TASK_DESC" --model "$MODEL" --via "$VIA" 2>&1)
+BRAIN_OUT=$(python3 "$BRAIN" check --task "$TASK_DESC" --model "$MODEL" 2>&1)
 BRAIN_EXIT=$?
 
 if [ "$BRAIN_EXIT" -ne 0 ]; then

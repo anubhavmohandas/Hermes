@@ -225,7 +225,7 @@ def main():
             print(f"unknown command: {head[0]}", file=sys.stderr)
             sys.exit(2)
     except (PermissionError, ConnectionError, RuntimeError, TimeoutError) as e:
-        # same contract as ollama_client.py's CLI: a clean one-line refusal,
+        # same contract as nvidia_client.py's CLI: a clean one-line refusal,
         # not a raw traceback with internal file paths (failure-injection
         # testing, 2026-07-05, found every one of these surfacing as a full
         # traceback — functionally harmless since the exit code was already

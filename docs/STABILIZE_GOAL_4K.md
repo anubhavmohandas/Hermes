@@ -14,7 +14,7 @@ G2 Orchestrator behaviorally tested: a golden set of ≥25 (request → expected
 
 G3 Execution surface hardened: cron/scheduler.py and delegation/agenda.py no longer rely on a regex denylist alone for shell=True — argv vector or command allowlist; threat model written into docs/DECISIONS.md. EVIDENCE: code change + test proving a known denylist-bypass string no longer executes.
 
-G4 Each external path answered once for real, or honestly marked unverified: Ollama Tier 2 chat, one search backend (Tavily/Firecrawl), one MCP server via Connect, one `claude -p` delegation child. Unexercised paths say "unverified" in status output — never implied working. EVIDENCE: captured real response per path, or explicit unverified marker.
+G4 Each external path answered once for real, or honestly marked unverified: NVIDIA API Tier 2 chat, one search backend (Tavily/Firecrawl), one MCP server via Connect, one `claude -p` delegation child. Unexercised paths say "unverified" in status output — never implied working. EVIDENCE: captured real response per path, or explicit unverified marker.
 
 DONE = all five gates GREEN with evidence on disk. Then STOP and report. Do not invent G5.
 

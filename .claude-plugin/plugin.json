@@ -83,7 +83,7 @@
       "curator-v1",
       "reasoningbank",
       "dream",
-      "ollama-dispatch",
+      "nvidia-dispatch",
       "cron",
       "delegation",
       "agenda",

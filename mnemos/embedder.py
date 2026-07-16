@@ -2,7 +2,7 @@
 """
 mnemos/embedder.py — Mnemos v2 embedder, two backends behind one seam.
 
-Backend selection: HERMES_EMBEDDER env var — "hash" (default) or "ollama".
+Backend selection: HERMES_EMBEDDER env var — "hash" (default) or "nvidia".
 Callers only depend on `embed(text) -> np.ndarray` (L2-normalized float32)
 and `embedding_dim() -> int`; hnsw_index.py stores the dim + backend in its
 meta sidecar and refuses to load an index built under a different one, so
@@ -15,11 +15,13 @@ Backend "hash" (default, offline, zero deps beyond numpy):
     thing in different words will NOT score similar. Proven: paraphrase
     similarity 0.0 in the 2026-07-02 audit.
 
-Backend "ollama" (real semantic embeddings, needs a running Ollama):
-    POST {HERMES_OLLAMA_URL:-http://localhost:11434}/api/embeddings with
-    HERMES_EMBED_MODEL (default nomic-embed-text, 768-dim). Fails LOUDLY if
-    Ollama is unreachable — silently falling back to the hash backend would
-    write 256-dim lexical vectors into a 768-dim semantic index.
+Backend "nvidia" (real semantic embeddings via the NVIDIA API, needs
+NVIDIA_API_KEY):
+    POST {HERMES_NVIDIA_URL:-https://integrate.api.nvidia.com}/v1/embeddings
+    with HERMES_EMBED_MODEL (default nvidia/nv-embedqa-e5-v5, 1024-dim).
+    Fails LOUDLY if the key is missing or the API is unreachable — silently
+    falling back to the hash backend would write 256-dim lexical vectors
+    into a 1024-dim semantic index.
 """
 import hashlib
 import json
@@ -32,26 +34,26 @@ import numpy as np
 
 DIM = 256  # hash backend's fixed output dimensionality
 
-OLLAMA_URL = os.environ.get("HERMES_OLLAMA_URL", "http://localhost:11434")
-OLLAMA_EMBED_MODEL = os.environ.get("HERMES_EMBED_MODEL", "nomic-embed-text")
+NVIDIA_URL = os.environ.get("HERMES_NVIDIA_URL", "https://integrate.api.nvidia.com")
+NVIDIA_EMBED_MODEL = os.environ.get("HERMES_EMBED_MODEL", "nvidia/nv-embedqa-e5-v5")
 
-_ollama_dim_cache = {}
+_nvidia_dim_cache = {}
 
 
 def backend() -> str:
     b = os.environ.get("HERMES_EMBEDDER", "hash")
-    if b not in ("hash", "ollama"):
-        raise ValueError(f"HERMES_EMBEDDER must be 'hash' or 'ollama', got {b!r}")
+    if b not in ("hash", "nvidia"):
+        raise ValueError(f"HERMES_EMBEDDER must be 'hash' or 'nvidia', got {b!r}")
     return b
 
 
 def embedding_dim() -> int:
     if backend() == "hash":
         return DIM
-    key = (OLLAMA_URL, OLLAMA_EMBED_MODEL)
-    if key not in _ollama_dim_cache:
-        _ollama_dim_cache[key] = len(_ollama_embed_raw("dimension probe"))
-    return _ollama_dim_cache[key]
+    key = (NVIDIA_URL, NVIDIA_EMBED_MODEL)
+    if key not in _nvidia_dim_cache:
+        _nvidia_dim_cache[key] = len(_nvidia_embed_raw("dimension probe"))
+    return _nvidia_dim_cache[key]
 
 
 def _normalize(vec: np.ndarray) -> np.ndarray:
@@ -89,33 +91,44 @@ def _hash_embed(text: str) -> np.ndarray:
 
 
 # --------------------------------------------------------------------------
-# ollama backend
+# nvidia backend
 # --------------------------------------------------------------------------
 
-def _ollama_embed_raw(text: str) -> list:
-    payload = json.dumps({"model": OLLAMA_EMBED_MODEL, "prompt": text}).encode()
+def _nvidia_embed_raw(text: str) -> list:
+    api_key = os.environ.get("NVIDIA_API_KEY", "")
+    if not api_key:
+        raise RuntimeError(
+            "HERMES_EMBEDDER=nvidia but NVIDIA_API_KEY is not set. NOT falling "
+            "back to the hash backend — that would mix embedding spaces in the "
+            "index. Set the key or unset HERMES_EMBEDDER.")
+    # occam: one fixed input_type for both queries and passages — asymmetric
+    # query/passage embedding modes if recall on real data warrants it
+    payload = json.dumps({"model": NVIDIA_EMBED_MODEL, "input": [text],
+                          "input_type": "query", "encoding_format": "float"}).encode()
     req = urllib.request.Request(
-        f"{OLLAMA_URL}/api/embeddings", data=payload,
-        headers={"Content-Type": "application/json"}, method="POST")
+        f"{NVIDIA_URL}/v1/embeddings", data=payload,
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {api_key}"}, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read())
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
         raise RuntimeError(
-            f"HERMES_EMBEDDER=ollama but {OLLAMA_URL} is unreachable or gave a bad "
+            f"HERMES_EMBEDDER=nvidia but {NVIDIA_URL} is unreachable or gave a bad "
             f"response ({e}). NOT falling back to the hash backend — that would mix "
-            f"embedding spaces in the index. Start Ollama (`ollama serve`, and "
-            f"`ollama pull {OLLAMA_EMBED_MODEL}`) or unset HERMES_EMBEDDER.")
-    embedding = data.get("embedding")
+            f"embedding spaces in the index. Check NVIDIA_API_KEY / network, or "
+            f"unset HERMES_EMBEDDER.")
+    items = data.get("data") or []
+    embedding = items[0].get("embedding") if items else None
     if not embedding:
         raise RuntimeError(
-            f"Ollama returned no embedding for model '{OLLAMA_EMBED_MODEL}' — "
-            f"is it pulled? (`ollama pull {OLLAMA_EMBED_MODEL}`)")
+            f"NVIDIA API returned no embedding for model '{NVIDIA_EMBED_MODEL}' — "
+            f"is it a valid embeddings model id on integrate.api.nvidia.com?")
     return embedding
 
 
-def _ollama_embed(text: str) -> np.ndarray:
-    return _normalize(np.asarray(_ollama_embed_raw(text), dtype=np.float32))
+def _nvidia_embed(text: str) -> np.ndarray:
+    return _normalize(np.asarray(_nvidia_embed_raw(text), dtype=np.float32))
 
 
 # --------------------------------------------------------------------------
@@ -126,7 +139,7 @@ def embed(text: str) -> np.ndarray:
     """Returns an L2-normalized float32 vector of length embedding_dim()."""
     if not text:
         return np.zeros(embedding_dim(), dtype=np.float32)
-    return _ollama_embed(text) if backend() == "ollama" else _hash_embed(text)
+    return _nvidia_embed(text) if backend() == "nvidia" else _hash_embed(text)
 
 
 if __name__ == "__main__":

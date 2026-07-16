@@ -61,7 +61,7 @@ class MnemosHNSW:
         self.max_elements = max_elements
 
         # dim comes from the active embedder backend (hash=256,
-        # ollama/nomic-embed-text=768) — see embedder.py.
+        # nvidia/nv-embedqa-e5-v5=1024) — see embedder.py.
         self.backend = embedder.backend()
         self.dim = embedder.embedding_dim()
         self.index = hnswlib.Index(space=SPACE, dim=self.dim)

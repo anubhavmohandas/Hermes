@@ -9,16 +9,16 @@ reaching UP into the root orchestrator (`brain.py`) for policy calls. The policy
 itself — sensitivity rules, tier routing, model exclusion, and the request/failure
 logs — has no dependency on the orchestrator, so it belongs in a leaf module both
 sides import downward. `brain.py` now re-exports every name here, so existing
-callers (`ollama_client.py`, `tier3.py`, the CLI, tests) keep using `brain.<fn>`
+callers (`nvidia_client.py`, `tier3.py`, the CLI, tests) keep using `brain.<fn>`
 unchanged.
 
 Three policy responsibilities, per HERMES_Architecture.md Layer 1:
   1. check_sensitivity(task_description) -> bool
-  2. get_tier(is_sensitive, task_type)   -> int   (1=Claude, 2=Ollama, 3=NYX fallback)
+  2. get_tier(is_sensitive, task_type)   -> int   (1=Claude, 2=NVIDIA API, 3=NYX fallback)
   3. log_request(...)                    -> append to logs/reasoning_seed.jsonl
 
 Plus the enforcement check hooks/verify.sh calls (via brain.py):
-  check_model_allowed(tier, model, via) -> (bool allowed, str reason)
+  check_model_allowed(tier, model) -> (bool allowed, str reason)
 
 Reimplemented fresh from extracted patterns (SuperClaude SelfCorrectionEngine #153,
 claude-code-main ModelSource enum, ruflo SPARC fallback chain). No code copied
@@ -53,17 +53,18 @@ SENSITIVE_KEYWORDS = [
 ]
 _SENSITIVE_RE = re.compile("|".join(SENSITIVE_KEYWORDS), re.IGNORECASE)
 
-# Task-type hints that push toward Tier 2 (Ollama) when NOT sensitive.
+# Task-type hints that push toward Tier 2 (NVIDIA API) when NOT sensitive.
 BULK_KEYWORDS = [r"\bbulk\b", r"\boffline\b", r"\bbatch\b", r"\blarge[- ]context\b",
                   r"\bcost[- ]sensitive\b", r"\bsummarize \d+", r"\bmany files\b"]
 _BULK_RE = re.compile("|".join(BULK_KEYWORDS), re.IGNORECASE)
 
-# Architectural exclusion — permanent, no config toggle, no opt-in.
-# Applies ONLY to `via=api`. Local Ollama-hosted open-weight builds are exempt.
+# Architectural exclusion — permanent, no config toggle, no opt-in. Every tier
+# is a remote API now (the local-Ollama exemption died with the local tier),
+# so the exclusion applies unconditionally.
 EXCLUDED_API_MODELS = ["kimi", "moonshot", "glm", "zhipu", "mimo", "xiaomi",
                         "minimax", "deepseek"]
 
-TIER_NAMES = {1: "Tier 1 — Claude API", 2: "Tier 2 — Ollama local", 3: "Tier 3 — NYX fallback"}
+TIER_NAMES = {1: "Tier 1 — Claude API", 2: "Tier 2 — NVIDIA API", 3: "Tier 3 — NYX fallback"}
 
 
 def check_sensitivity(task_description: str) -> bool:
@@ -79,45 +80,34 @@ def is_bulk_task(task_description: str) -> bool:
     return bool(_BULK_RE.search(task_description))
 
 
-def get_tier(is_sensitive: bool, task_type: str = "default", via: str = "api") -> int:
+def get_tier(is_sensitive: bool, task_type: str = "default") -> int:
     """
-    Sensitive + via=local -> Tier 2. Local Ollama IS permitted for sensitive
-        data per HERMES_Phase3_Blueprint.docx section 6.2 ("CVEs, recon
-        output, pentest notes -> Tier 1 (Claude API) or Tier 2 (local
-        Ollama) ONLY") and the v1 blueprint's Apollo Model Routing table.
-        Audited 2026-07-02 (H2) — original version forced sensitive tasks to
-        Tier 1 unconditionally, which made it IMPOSSIBLE to ever run a
-        CVE/recon/pentest task offline on local hardware, contradicting both
-        blueprints' explicit intent. Tier 3 remains categorically
-        unreachable for sensitive data regardless of `via` — that
-        restriction is correct and unchanged.
-    Sensitive + via=api (default) -> Tier 1, no exceptions.
-    Non-sensitive + task_type=bulk -> Tier 2.
+    Sensitive -> Tier 1, no exceptions. The old sensitive->Tier-2 path (H2,
+        audited 2026-07-02) existed ONLY because Tier 2 was local Ollama and
+        data never left the machine. Tier 2 is now the NVIDIA cloud API —
+        sensitive data (CVEs, recon output, pentest notes) routes to Tier 1
+        (Claude API) only. Tier 3 remains categorically unreachable for
+        sensitive data — unchanged.
+    Non-sensitive + task_type=bulk -> Tier 2 (NVIDIA API).
     Everything else -> Tier 1 (default-safe).
     """
     if is_sensitive:
-        return 2 if via == "local" else 1
+        return 1
     if task_type == "bulk":
         return 2
     return 1
 
 
-def check_model_allowed(tier: int, model: str, via: str = "api"):
+def check_model_allowed(tier: int, model: str):
     """
     Returns (allowed: bool, reason: str).
-    Enforces:
-      - Chinese API exclusion (permanent, via=api only)
-      - Sensitive/Tier-1-only tasks cannot route to Tier 2 or Tier 3
-      - Tier 3 (NYX) never carries sensitive data even if available
+    Enforces the Chinese API exclusion (permanent, all tiers — every tier is
+    a remote API now). Sensitive data never reaches Tier 2/3 via get_tier().
     """
     model_l = (model or "").lower()
 
-    if via == "api" and any(x in model_l for x in EXCLUDED_API_MODELS):
+    if any(x in model_l for x in EXCLUDED_API_MODELS):
         return False, f"BLOCKED: '{model}' is an excluded Chinese API model (permanent architectural exclusion, no opt-in)."
-
-    if tier == 1 and via == "local":
-        # Not fatal by itself — Tier 1 is Claude API by definition. Flag it.
-        return False, "BLOCKED: Tier 1 requires Claude API, but request is routed to a local model."
 
     return True, "ALLOWED"
 

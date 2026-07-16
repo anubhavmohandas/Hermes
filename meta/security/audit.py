@@ -80,12 +80,12 @@ def run_audit():
     checks.append(_check(5, "D1 token allows once then re-blocks", a1 and not a2,
                          f"first={a1} second={a2}"))
 
-    # Layer 6 — policy: Chinese-API model excluded via api.
-    allowed, reason = policy.check_model_allowed(1, "deepseek-chat", via="api")
+    # Layer 6 — policy: Chinese-API model excluded.
+    allowed, reason = policy.check_model_allowed(1, "deepseek-chat")
     checks.append(_check(6, "policy excludes Chinese API model", not allowed, reason[:80]))
 
     # Layer 6 — policy: sensitive task never reaches Tier 3.
-    tier = policy.get_tier(policy.check_sensitivity("analyze this CVE-2025-9999 exploit"), via="api")
+    tier = policy.get_tier(policy.check_sensitivity("analyze this CVE-2025-9999 exploit"))
     checks.append(_check(6, "sensitive routes to Tier 1 not 3", tier == 1, f"tier={tier}"))
 
     # Layer 7 — redact: real Anthropic key shape scrubbed.
