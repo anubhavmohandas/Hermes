@@ -36,6 +36,7 @@ for sub in ("", "meta", "meta/security", "mnemos", "reasoningbank", "curator",
 import brain
 from meta import policy  # policy core; brain re-exports it. Patch/read HERE for log-path redirection.
 from meta import contracts  # V1_CHECKLIST §2 boundary contracts
+from meta import occam
 import file_safety
 import path_security
 import url_safety
@@ -970,6 +971,7 @@ class TestActiveModulesProvablyRun(HermesTestCase):
         "fetcher": "fetcher/fetch.py",
         "connect": "connect/mcp_client.py",
         "laconic": "meta/laconic.py",
+        "occam": "meta/occam.py",
     }
 
     def _active_modules(self):
@@ -1722,6 +1724,98 @@ class TestSecurityAudit(HermesTestCase):
 # ---------------------------------------------------------------------------
 # Stage 5 — integrations: each opt-in module + its fallback
 # ---------------------------------------------------------------------------
+class TestOccam(HermesTestCase):
+    """Unit coverage for meta/occam.py, mirroring the behaviors verified in
+    the source project's own tests/hooks.test.js (deactivation exact-match,
+    default-mode merge-not-overwrite, review never a valid default, subagent
+    matcher fail-open semantics) so a future edit that breaks one of these
+    fails a test instead of only showing up live."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp(prefix="occam-test-")
+        self._env_patch = mock.patch.dict(os.environ, {
+            "CLAUDE_CONFIG_DIR": self._tmp,
+            "XDG_CONFIG_HOME": self._tmp,
+        })
+        self._env_patch.start()
+        occam.FLAG_PATH = Path(self._tmp) / ".hermes-occam-active"
+
+    def tearDown(self):
+        self._env_patch.stop()
+
+    def test_parse_occam_command_variants(self):
+        self.assertEqual(occam.parse_occam_command("/occam ultra"), ("set", "ultra"))
+        self.assertEqual(occam.parse_occam_command("/occam off"), ("off", None))
+        self.assertEqual(occam.parse_occam_command("/occam"), ("report", None))
+        self.assertEqual(occam.parse_occam_command("@occam lite"), ("set", "lite"))
+        self.assertEqual(occam.parse_occam_command("/occam-review"), ("review", None))
+        self.assertEqual(occam.parse_occam_command("/occam default ultra"), ("default", "ultra"))
+        self.assertEqual(occam.parse_occam_command("/occam default review"), (None, None),
+                          "review must never be accepted as a default")
+        self.assertEqual(occam.parse_occam_command("write me a function"), (None, None))
+
+    def test_deactivation_is_exact_match_not_substring(self):
+        self.assertTrue(occam.is_deactivation_command("stop occam"))
+        self.assertTrue(occam.is_deactivation_command("Normal Mode."))
+        self.assertFalse(
+            occam.is_deactivation_command("add a normal mode toggle next to dark mode"),
+            "incidental 'normal mode' in an ordinary request must not deactivate",
+        )
+
+    def test_write_default_mode_merges_not_overwrites(self):
+        cfg_path = occam._external_config_dir() / "config.json"
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        cfg_path.write_text(json.dumps({"defaultMode": "full", "customSetting": 42}))
+        occam.write_default_mode("ultra")
+        merged = json.loads(cfg_path.read_text())
+        self.assertEqual(merged["defaultMode"], "ultra")
+        self.assertEqual(merged["customSetting"], 42, "existing config fields must survive the write")
+
+    def test_review_refused_as_default(self):
+        self.assertIsNone(occam.write_default_mode("review"))
+
+    def test_filter_skill_body_for_mode_keeps_only_active_row(self):
+        body = (
+            "---\nname: x\n---\n"
+            "# Occam\n"
+            "| Level | What change |\n"
+            "|-------|------------|\n"
+            "| **lite** | lite text |\n"
+            "| **full** | full text |\n"
+            "| **ultra** | ultra text |\n"
+        )
+        filtered = occam.filter_skill_body_for_mode(body, "ultra")
+        self.assertIn("ultra text", filtered)
+        self.assertNotIn("lite text", filtered)
+        self.assertNotIn("full text", filtered)
+        self.assertNotIn("name: x", filtered, "frontmatter must be stripped")
+
+    def test_build_injected_context_off_is_empty(self):
+        self.assertEqual(occam.build_injected_context("off"), "")
+
+    def test_build_injected_context_review_uses_review_skill(self):
+        ctx = occam.build_injected_context("review")
+        self.assertIn("level: review", ctx)
+        self.assertIn("Review diffs for unnecessary complexity", ctx)
+
+    def test_subagent_matcher_fails_open_on_bad_regex(self):
+        occam.safe_write_flag("full")
+        with mock.patch.dict(os.environ, {"OCCAM_SUBAGENT_MATCHER": "("}):
+            ctx = occam.handle_subagent_start("anything")
+        self.assertIn("level: full", ctx, "an invalid regex must fail open (inject), not crash or skip")
+
+    def test_subagent_matcher_skips_definite_mismatch(self):
+        occam.safe_write_flag("full")
+        with mock.patch.dict(os.environ, {"OCCAM_SUBAGENT_MATCHER": "^general$"}):
+            self.assertEqual(occam.handle_subagent_start("general-purpose"), "",
+                              "an anchored matcher must reject a superset agent_type")
+            self.assertIn("level: full", occam.handle_subagent_start("general"))
+
+    def test_subagent_silent_when_off(self):
+        occam.clear_flag()
+        self.assertEqual(occam.handle_subagent_start(), "")
+
+
 class TestIntegrations(HermesTestCase):
     def test_laconic_compress_keeps_negations(self):
         out = laconic_compress.compress("this is not the right answer and never was")

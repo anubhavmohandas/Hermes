@@ -98,7 +98,8 @@ package what's already built.
   db/ (Supabase), webdev/, media/ (claude-video, /watch), Composio connectors
   (sandboxed, permission-per-connector), C++ turbo memory (Python fallback),
   NotebookLM synthesis (opt-in), Laconic token-reduction mode (built
-  2026-07-13), Kanban. Each ships with a fallback.
+  2026-07-13), Occam minimal-code ladder mode (built 2026-07-16), Kanban.
+  Each ships with a fallback.
   **Gate:** each module present with its fallback verified. This completes the
   end goal (everything except NYX).
 

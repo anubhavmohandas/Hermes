@@ -599,3 +599,112 @@ degrades to zero cleanly, no exception.
 "extracted but not integrated" to "integrated and tested." Item 1 (tool
 coverage breadth) and item 2 (schema confidence) are follow-up work, not
 blockers, and are logged here rather than silently assumed complete.
+
+---
+
+## D12 — Occam: ported from a user-uploaded third-party plugin zip, not the 58-item Extractions/ corpus (CLOSED, 2026-07-16)
+
+**Found:** user uploaded `ponytail-main.zip` (a third-party multi-host
+agent plugin, MIT licensed, ~4.8.4) and asked for it to be added to
+HERMES. This is NOT one of the 58 folders `EXTRACTION_COVERAGE.md` audits
+— that doc's table is deliberately left untouched, since inserting a row
+there would misrepresent what that dated audit actually covers. This
+entry is the only record of the port.
+
+**What the source project actually is, corrected against the user's own
+description:** the user described it as a static analyzer that shrinks
+an existing large codebase after the fact. That is only one piece of it
+(`ponytail-audit`, whole-repo). The primary mechanism is the same
+architecture family as Laconic/Caveman ([[D11]]): a `SessionStart` +
+`UserPromptSubmit` + `SubagentStart` hook-enforced behavioral mode that
+makes the agent write less code *as it writes new code*, via a 7-rung
+ladder (YAGNI → reuse-in-repo → stdlib → native platform → installed dep
+→ one line → minimum), at three intensities (lite/full/ultra) plus an
+independent `review` mode. Five satellite skills ship alongside it:
+`-review` (diff), `-audit` (whole repo, the part matching the user's
+original description), `-debt` (harvest `<marker>:` shortcut comments
+into a ledger), `-gain` (benchmark scoreboard), `-help`.
+
+**Non-obvious discovery, worth flagging plainly:** the source repo already
+documents installation for something it calls "Hermes Agent" —
+`hermes plugins install owner/repo`, a Python `__init__.py` with
+`register_skill/register_hook/register_command`, a `plugin.yaml` manifest.
+This is a real, unrelated third-party agent-gateway product that happens
+to share the name "Hermes." It is not this project. Pure name collision,
+confirmed by reading `tests/hermes-plugin.test.js` and `__init__.py`
+directly — no relationship, no shared code, no integration path between
+that product and this one. That said, `__init__.py`'s Python mode-filtering
+logic (`_filter_skill_body_for_mode`, `build_injected_context`) was a
+useful reference for porting the Node.js hook logic to `meta/occam.py`,
+since it's already in the same language HERMES uses.
+
+**Renamed on integration**, per the same convention as Apollo/Mnemos/
+Clio/Laconic: **Occam**, for Occam's razor (entities should not be
+multiplied beyond necessity) — accurate to what the module does, not
+reused from the source project's own name. Comment marker for deliberate
+shortcuts changed from the source's own marker to `occam:` throughout.
+
+**Built:**
+- `meta/occam.py` — mode state (flag-file IPC, same pattern as
+  `meta/laconic.py`), config resolution (env var `OCCAM_DEFAULT_MODE` >
+  `~/.config/occam/config.json` > `full`), `/occam` command parsing,
+  skill-body mode-filtering (ported from the source's own Python
+  reference), subagent matcher scoping (`OCCAM_SUBAGENT_MATCHER`,
+  fail-open on bad regex or missing `agent_type`), BOM-safe stdin JSON
+  parsing (also retrofitted into `meta/laconic.py` for the same class of
+  robustness — was missing there too).
+- `hooks/occam_activate.sh` (`SessionStart` — full ruleset once,
+  writes the flag, one-time statusline setup nudge), `hooks/occam_mode_tracker.sh`
+  (`UserPromptSubmit` — command parsing + short per-turn reminder while
+  active), `hooks/occam_subagent.sh` (`SubagentStart` — propagates to
+  Task-spawned subagents, which never see `SessionStart` context
+  otherwise; this closes the same gap the source project's own issue
+  #252 describes).
+- `hooks/hermes_statusline.sh` — combined Occam+Laconic mode badge,
+  ported from the source's single-mode statusline script, extended to
+  read both flags since HERMES now has two.
+- `skills/occam/SKILL.md` + `skills/occam-{review,audit,debt,gain,help}/SKILL.md`.
+- `scripts/occam_laconic_cleanup.py` — ported from the source's own
+  `scripts/uninstall.js`; removes both mode flags, Occam's config file,
+  and (only the segment it owns) a combined statusLine entry.
+- `test_hermes.py`: `TestOccam` (10 new unit tests covering command
+  parsing, exact-match deactivation, default-mode merge-not-overwrite,
+  review-never-a-valid-default, skill-body mode filtering, subagent
+  matcher fail-open semantics) + `laconic`/`occam` both added to
+  `TestActiveModulesProvablyRun.MODULE_ENTRYPOINTS`. 185 tests total,
+  same 2 pre-existing environment failures as [[D11]] (missing `hnswlib`,
+  FUSE permission error), nothing new broken.
+
+**Deliberate deviation from the source, disclosed:** the source only
+re-injects its ruleset at `SessionStart` + on an explicit mode switch.
+HERMES's own established doctrine ([[D11]], `hooks/apollo_gate.sh`,
+pattern #161) is that long sessions drift without per-turn reinforcement,
+so `UserPromptSubmit` here also emits a short one-line reminder every
+turn — not the full ladder text, which would be the exact bloat this
+module exists to cut.
+
+**What's still open, disclosed rather than silently left out:**
+1. `/occam-gain`'s numbers are the source project's own published
+   benchmark (real FastAPI+React repo, Haiku 4.5, n=4) — explicitly
+   labeled as not a HERMES-measured figure in the skill itself. Building
+   an actual HERMES-run benchmark (the source's own `benchmarks/`
+   harness) was scoped out of this session as a substantial separate
+   effort, not silently dropped.
+2. ~13 other-agent-host adapter directories in the source zip
+   (`.cursor/`, `.windsurf/`, `.clinerules/`, `.codex-plugin/`,
+   `.devin-plugin/`, `.openclaw/`, `.opencode/`, `.qoder/`,
+   `.qoder-plugin/`, `AGENTS.md`, `ponytail-mcp/`, `pi-extension/`,
+   `gemini-extension.json`) were not ported — out of scope, HERMES is
+   Claude-Code/Cowork-only, porting them would mean building adapters
+   for hosts HERMES doesn't run on.
+3. Found mid-session: an unexplained, already-on-disk uncommitted diff
+   to `README.md` (an Occam row + a "Create flow" row, accurate content
+   this session didn't write) and a stale `.git/index.lock` this session
+   could not remove (permission denied — same FUSE-mount class of issue
+   as [[D8]]). No active git process was found holding the lock. Left
+   the README content in place (accurate, non-conflicting) rather than
+   fight it; flagged to the user directly as an open question, not
+   silently absorbed as this session's own work. Possible explanation:
+   the multi-session risk already documented in [[D7]].
+
+**Status: CLOSED** for the scope stated above.

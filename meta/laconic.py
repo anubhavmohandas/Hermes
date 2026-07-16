@@ -250,7 +250,10 @@ if __name__ == "__main__":
     import sys
 
     try:
-        data = json.load(sys.stdin)
+        # Strip a UTF-8 BOM some shells/editors prepend when piping on
+        # Windows — breaks json.loads otherwise (same fix ported for occam.py).
+        raw = sys.stdin.read().lstrip("﻿")
+        data = json.loads(raw)
         prompt = data.get("prompt", "")
     except Exception:
         prompt = ""

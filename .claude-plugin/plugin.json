@@ -1,7 +1,7 @@
 {
   "name": "hermes",
   "version": "0.7.0-create",
-  "description": "Hybrid Engine for Research, Memory, Execution & Synthesis. Stages 0-5 built and unit-tested (174 tests, environment-conditional skips if hnswlib/numpy aren't installed); Stage 0 proven end-to-end on real disk with a human-gated self-improvement loop; the PreToolUse security gate is installed and live-verified (real blocked tool calls, not just unit tests, as of 2026-07-05); live-traffic proving of autonomy/external paths in progress: security-gated orchestration + memory/self-improvement (Apollo, Mnemos v2, Curator, ReasoningBank, Dream), autonomy (Cron durable scheduler, Delegation, Fetcher SAFE_MODE, Connect MCP+PKCE), hardening (Tier-3 guard, D1 approval tokens, think-scrubber, upstream tracker, repeatable 7-layer audit), laconic token-reduction mode (built 2026-07-13, hook-wired, opt-in at runtime via natural-language toggle), and opt-in integrations (db, webdev, media, kanban, turbo memory, notebooklm, composio). NYX (Stage 6) deliberately out of scope.",
+  "description": "Hybrid Engine for Research, Memory, Execution & Synthesis. Stages 0-5 built and unit-tested (174 tests, environment-conditional skips if hnswlib/numpy aren't installed); Stage 0 proven end-to-end on real disk with a human-gated self-improvement loop; the PreToolUse security gate is installed and live-verified (real blocked tool calls, not just unit tests, as of 2026-07-05); live-traffic proving of autonomy/external paths in progress: security-gated orchestration + memory/self-improvement (Apollo, Mnemos v2, Curator, ReasoningBank, Dream), autonomy (Cron durable scheduler, Delegation, Fetcher SAFE_MODE, Connect MCP+PKCE), hardening (Tier-3 guard, D1 approval tokens, think-scrubber, upstream tracker, repeatable 7-layer audit), laconic token-reduction mode (built 2026-07-13, hook-wired, opt-in at runtime via natural-language toggle), occam lazy-minimal-code mode (built 2026-07-16, SessionStart+UserPromptSubmit+SubagentStart hook-wired, lite/full/ultra/review levels), and opt-in integrations (db, webdev, media, kanban, turbo memory, notebooklm, composio). NYX (Stage 6) deliberately out of scope.",
   "skill": "SKILL.md",
   "hooks": {
     "UserPromptSubmit": [
@@ -15,6 +15,11 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/laconic_mode.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/occam_mode_tracker.sh",
             "timeout": 10
           }
         ]
@@ -36,6 +41,22 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/skills_scan.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/occam_activate.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/occam_subagent.sh",
+            "timeout": 5
           }
         ]
       }
@@ -68,7 +89,8 @@
       "agenda",
       "fetcher",
       "connect",
-      "laconic"
+      "laconic",
+      "occam"
     ],
     "opt_in": [
       "db",

@@ -19,7 +19,7 @@ Built by [Anubhav Mohandas](https://github.com/anubhavmohandas), grounded in 1,4
 | 2 (3B) | Mnemos v2 (HNSW + 3-tier hybrid search), Curator v1 (human-gated proposals), ReasoningBank (reward-scored task memory), Dream consolidation | ✅ Built, unit-tested |
 | 3 (3C) | Cron (durable SQLite scheduler, `.tick.lock`, 3-min interrupt, Mnemos write-back), Delegation (≤3 children, forbidden-tool restriction), Fetcher (Tavily/Firecrawl, SAFE_MODE, SSRF-every-hop), Connect (native MCP client + capability negotiation + PKCE OAuth) | ✅ Built, unit-tested · Ollama/Tavily/MCP live paths proven on real infra 2026-07-05; 6 failure modes tested and fail closed, two CLI robustness bugs found and fixed same session; Apollo's "never silently substitute tiers" rule confirmed live under 3 real Tier-2-outage cases including one adversarial-pressure case (`logs/proof_gate4.md`, `logs/proof_failuremode.md`, `logs/proof_apollo_tier_fallback.md`, all local) — real-daemon-kill, genuinely-revoked-key, and multi-turn/jailbreak robustness of the tier rule remain untested |
 | 4 (3D) | Repeatable 7-layer audit, Clio benchmark baseline, Tier-3 routing guard (2nd sensitivity check + EU/US jurisdiction), D1 interactive approval tokens, streaming think-block scrubber, upstream drift tracker | ✅ Built, unit-tested |
-| 5 | Laconic token-reduction (per-turn hook + bulk-text compress), opt-in breadth each with a fallback: db (Supabase/SQLite + migrations), webdev, media, kanban, turbo memory (C++/NumPy/Python), NotebookLM, Composio | ✅ Built, unit-tested (opt-in, each with fallback) |
+| 5 | Laconic token-reduction (per-turn hook + bulk-text compress), Occam lazy-minimal-code mode (hook-enforced ladder, lite/full/ultra + review/audit/debt satellite skills), opt-in breadth each with a fallback: db (Supabase/SQLite + migrations), webdev, media, kanban, turbo memory (C++/NumPy/Python), NotebookLM, Composio | ✅ Built, unit-tested (opt-in, each with fallback) |
 | 6 | NYX integration | ⬜ Out of scope — NYX not built yet |
 
 ## Architecture
@@ -33,6 +33,7 @@ Nothing bypasses Apollo. Nothing bypasses the security gate — it's a `PreToolU
 | Module | What it does |
 |---|---|
 | **Apollo** (`SKILL.md`) | Master router. Classifies intent, confirms model tier before routing, runs a verification pass on every output. |
+| **Create flow** (`skills/create` → `webdev` / `documents` / `research` / `tasks`) | Deliverable orchestrator. When you ask for something to be *made* — a website, app, report, deck, spreadsheet, research brief, or task plan — it runs an intake interview, confirms the brief, routes to the matching sub-skill (webdev for sites/apps, documents for DOCX/PDF/XLSX/PPTX, research for search-backed briefs, tasks for decomposition), verifies the output exists, and logs it to Mnemos. |
 | **brain.py** | Deterministic (not LLM-based) sensitivity classification and 3-tier model routing. |
 | **meta/security/** | 7 independent defense-in-depth layers: write denylist, path traversal, SSRF prevention, skill static analysis, dangerous-command gate, pre-exec binary scanner, secret redaction. |
 | **Mnemos** | Memory. v1 is SQLite WAL+FTS5 lexical search. v2 adds a 3-tier hybrid retrieval pipeline (BM25 → regex → HNSW semantic). |
@@ -47,7 +48,26 @@ Nothing bypasses Apollo. Nothing bypasses the security gate — it's a `PreToolU
 | **Tier-3 guard** (`tier3.py`) | Availability-only fallback selection with an independent second sensitivity check, Chinese-API exclusion, and EU/US jurisdiction filter (fails closed on unknown jurisdiction). Selects; never dispatches. |
 | **Approval tokens** (`meta/security/approval_token.py`) | D1 resolution: a single-use, command-bound, 300s token lets a human approve one specific dangerous command through the otherwise fail-closed hook. |
 | **Laconic** (`meta/laconic.py`, `integrations/laconic_compress.py`) | Token-reduction: a per-turn hook (flag-file mode toggle, auto-clarity override) for live-session brevity, plus a deterministic stopword-drop compressor for bulk text before a Tier 2 job. |
+| **Occam** (`meta/occam.py`, `skills/occam*`) | Minimal-code behavioral mode: enforces a "lazy ladder" on every coding task — does this need to exist (YAGNI) → reuse what's in the codebase → stdlib → native platform feature → installed dep → one line → only then new code. Hook-wired at `SessionStart` (full ruleset), `UserPromptSubmit` (per-turn reminder), and `SubagentStart` (propagates to subagents). Ships five satellite skills — see the Occam family below. |
 | **Opt-in integrations** (`integrations/`) | db, webdev, media, kanban, turbo memory, NotebookLM, Composio — each independently installable with a verified fallback, none on the critical path. |
+
+## Behavioral modes — Laconic & Occam
+
+Two independent, reversible output modes. Both persist state as a flag file under `$CLAUDE_CONFIG_DIR` (default `~/.claude`) and are re-asserted by a hook every turn, so they survive long sessions instead of decaying like a one-time instruction. `hooks/hermes_statusline.sh` renders a `[OCCAM]` / `[LACONIC]` badge for whichever is active — add it to your `settings.json` `statusLine` once (plugins can't set that key themselves; the SessionStart hook nudges you).
+
+**Laconic** governs *how much is said*. Opt-in: say "go laconic" / "be brief" / "less tokens" to activate, "stop laconic" / "normal mode" to turn off. While active, every response is compressed — no preamble, no postamble, code/diff first. It auto-suspends for one turn when the content is safety-critical (destructive command, security warning, user confusion), then resumes. `meta/laconic.py` also exposes a separate bulk-text compressor (`can_compress` / `validate_compression`) with a sensitive-path denylist and structural integrity checks, used to shrink files before a Tier 2 job.
+
+**Occam** governs *how much is built*. On by default at level `full`; switch with `/occam lite|full|ultra`, off with "stop occam" / "normal mode". It channels a lazy senior dev: question whether the code needs to exist at all before writing it, prefer deletion over addition, boring over clever, and never add a dependency for what a few lines can do. It never cuts input validation, error handling, security, or accessibility. Levels: `lite` builds what's asked but names the lazier alternative, `full` enforces the ladder (default), `ultra` is the YAGNI extremist that challenges the requirement itself. Deliberate shortcuts are left as `occam:` comments naming the ceiling and upgrade path.
+
+The Occam family (one-shot skills, all read-only):
+
+| Skill | What it does |
+|---|---|
+| `/occam-review` | Reviews the current diff exclusively for over-engineering — reinvented stdlib, unneeded deps, speculative abstractions. One line per finding: location, what to cut, what replaces it. Complements a correctness review; this one only hunts complexity. |
+| `/occam-audit` | Same hunt, whole repo instead of a diff: a ranked list of what to delete, simplify, or replace with stdlib/native equivalents. |
+| `/occam-debt` | Harvests every `occam:` comment in the codebase into a debt ledger, so deliberate shortcuts get tracked instead of rotting into "later means never". |
+| `/occam-gain` | Shows the source project's published benchmark scoreboard for the lazy-ladder approach (less code, less cost, more speed). Explicitly not a measurement of this repo. |
+| `/occam-help` | Quick-reference card for all Occam modes, levels, and commands. |
 
 ## Model routing
 

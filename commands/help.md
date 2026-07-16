@@ -12,20 +12,29 @@ from what's actually wired):
 1. **Active modules** — one line each: name, what it does, example trigger
    phrase. Pull the list from `SKILL.md` §10 module map, "Active" rows only
    (Stages 1–4: the core spine plus cron/delegation/fetcher/connect and the
-   Stage-4 hardening modules; also Laconic, Stage 5 but hook-wired
+   Stage-4 hardening modules; also Laconic and Occam, Stage 5 but hook-wired
    unconditionally like the others — see below).
 2. **Laconic** — token-reduction. Trigger with "go laconic" / "be brief" /
    "less tokens" for the live-session per-turn mode (`meta/laconic.py` +
    `hooks/laconic_mode.sh`); say "stop laconic" to turn it off. Separately,
    `integrations/laconic_compress.py` does a one-off deterministic
    stopword-drop on bulk text before a Tier 2 job — no model call.
-3. **Opt-in modules (Stage 5)** — db, webdev, media, kanban,
+3. **Occam** — minimal-code mode, active every session by default (`full`).
+   `meta/occam.py` enforces a YAGNI → reuse → stdlib → native → dep → one
+   line → minimum ladder on every coding task, hook-wired at `SessionStart`
+   (full ruleset), `UserPromptSubmit` (`/occam lite|full|ultra|off`, per-turn
+   reminder), and `SubagentStart` (propagates to Task subagents). Five
+   satellite skills: `/occam-review` (diff), `/occam-audit` (whole repo),
+   `/occam-debt` (harvest `occam:` shortcut comments), `/occam-gain` (the
+   source project's own benchmark scoreboard, not a HERMES-measured number
+   — say so if asked), `/occam-help`. Say "stop occam" to turn it off.
+4. **Opt-in modules (Stage 5)** — db, webdev, media, kanban,
    turbo-memory, notebooklm, composio. Each installs on demand and ships a
    fallback; name the fallback, don't imply the online path is always on.
-4. **Out of scope** — NYX (Stage 6). NYX doesn't exist yet; say so plainly.
+5. **Out of scope** — NYX (Stage 6). NYX doesn't exist yet; say so plainly.
    Do not describe it as if it partially works.
-5. **Slash commands** — `/help` (this), `/status`, `/goal` (end goal + gated roadmap + next action).
-6. **Hard constraints** — one line: "Chinese APIs excluded, sensitive data
+6. **Slash commands** — `/help` (this), `/status`, `/goal` (end goal + gated roadmap + next action).
+7. **Hard constraints** — one line: "Chinese APIs excluded, sensitive data
    never routes to Tier 3, HERMES never auto-applies changes." Full detail
    lives in `SKILL.md` §9 if the user asks for more.
 

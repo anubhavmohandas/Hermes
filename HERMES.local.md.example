@@ -10,11 +10,11 @@ OLLAMA_CONTEXT: 256000
 # Modules currently wired and answering requests.
 # Source of truth is .claude-plugin/plugin.json ("modules.active") — keep these
 # in sync with it; this line is what Apollo reads at session start.
-ACTIVE_MODULES: create, webdev, research, tasks, documents, mnemos-v2, clio-v1, meta/security, curator-v1, reasoningbank, dream, ollama-dispatch, cron, delegation, agenda, fetcher, connect
+ACTIVE_MODULES: create, webdev, research, tasks, documents, mnemos-v2, clio-v1, meta/security, curator-v1, reasoningbank, dream, ollama-dispatch, cron, delegation, agenda, fetcher, connect, laconic, occam
 
 # Opt-in integrations — built, but off until you explicitly enable one
 # (plugin.json "modules.opt_in"). None run by default.
-OPT_IN_MODULES: db, repopack, media, caveman, kanban, turbo-memory, notebooklm, composio
+OPT_IN_MODULES: db, repopack, media, kanban, turbo-memory, notebooklm, composio
 
 # On the roadmap but not built this release (plugin.json "modules.offline")
 INACTIVE_MODULES: nyx
