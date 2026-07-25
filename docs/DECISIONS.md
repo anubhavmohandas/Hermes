@@ -708,3 +708,55 @@ module exists to cut.
    the multi-session risk already documented in [[D7]].
 
 **Status: CLOSED** for the scope stated above.
+
+---
+
+## D13 — `/goal` hardcoded HERMES's own roadmap regardless of project; made general-purpose (CLOSED, 2026-07-25)
+
+**Found:** user ran `/goal` and got HERMES's own end-goal roadmap
+(Stages 0–5, NYX excluded) printed back, in a session with no HERMES-goal
+work actually in play. User's position: HERMES is a general-purpose
+plugin (its execution skills — webdev, documents, research, tasks — route
+in any project per `apollo_gate.sh`), so `/goal` should behave the same
+way, not be special-cased to only ever describe HERMES itself.
+
+**Why this was hardcoded in the first place:** `commands/goal.md` rule 1
+said "state this verbatim, do not soften" about HERMES's own goal text —
+that was correct for the command's original purpose (track HERMES's own
+build against `HERMES_GOAL_Start_to_End.md`) but nothing distinguished
+"the project /goal should describe" from "the project HERMES's own docs
+happen to live in." Every other project got HERMES's roadmap by default,
+which is wrong for a general-purpose plugin — same silent-substitution
+shape as [[D10]] (webdev skipping steps without disclosure), just in the
+opposite direction: printing something *unrequested* instead of skipping
+something *requested*.
+
+**Fix:** `commands/goal.md` now runs a Step 0 source-selection check before
+anything else: look for `./GOAL.md` then `./.claude/GOAL.md` in cwd. If
+found, that project's file is the source of truth for `full`/`status`/
+`next`/stage-number, and HERMES's own 6-stage schema is not forced onto a
+project that was never written in that shape. If not found and cwd is the
+HERMES repo itself (checked via `HERMES_GOAL_Start_to_End.md` at project
+root), fall back to HERMES's own roadmap — the original behavior, now
+correctly scoped. If not found and cwd is any other project, `/goal` says
+"No GOAL.md found for this project. Want me to help draft one?" and stops
+— it does not silently substitute HERMES's roadmap for a project that
+isn't HERMES.
+
+**What's still open, disclosed rather than silently left out:**
+1. No `GOAL.md` template/scaffold command exists yet — if a user says
+   "yes, help me draft one," there's no `hermes:goal-init` or equivalent
+   to generate the file interactively. The routing logic assumes the file
+   either exists or doesn't; creating it well (stages? plain prose? gates?)
+   is unscoped follow-up work.
+2. Projects with an existing goal-tracking doc under a different filename
+   (e.g. `ROADMAP.md`, `PLAN.md`) won't be picked up — only `GOAL.md` and
+   `.claude/GOAL.md` are checked. Widening the search path was left out to
+   avoid false-positive matches on unrelated docs.
+3. Not tested against a real second project in this session — verification
+   is on the user: run `/goal` in a non-HERMES project with no `GOAL.md`
+   and confirm it produces the disclosure message rather than HERMES's
+   roadmap, then add a `GOAL.md` there and confirm it switches source.
+
+**Status: CLOSED** for the routing-logic scope stated above. Items 1–3 are
+follow-up work, not blockers.

@@ -1,10 +1,36 @@
 ---
 name: goal
-description: /goal — the complete HERMES end goal and the ordered, gated roadmap to reach it. End goal = every module reimplemented from all extracted patterns EXCEPT NYX integration (NYX doesn't exist yet). Restates the goal, checks which stage the build is actually in, and names the single next action. Full detail in HERMES_GOAL_Start_to_End.md.
+description: /goal — general-purpose goal/roadmap command. Looks for a GOAL.md in the current project first; if found, that project's goal is the source of truth. If not found and cwd is the HERMES repo itself, falls back to HERMES's own end goal (every module reimplemented from extracted patterns EXCEPT NYX). If not found and cwd is some other project, says so plainly and offers to help draft one — never silently substitutes HERMES's roadmap for a project that isn't HERMES. Full HERMES-self detail in HERMES_GOAL_Start_to_End.md.
 argument-hint: "[ full | status | next | 0 | 1 | 2 | 3 | 4 | 5 ]"
 ---
 
 # /goal
+
+## Step 0 — determine the goal source (run this first, every invocation, before anything else)
+
+1. Look in cwd for a project goal file, in this order: `./GOAL.md`, then
+   `./.claude/GOAL.md`.
+2. **Found →** that file is this invocation's source of truth for the rest
+   of this command. Apply the same `$ARGUMENTS` behavior (`full` / `status`
+   / `next` / a stage number) against whatever structure that file actually
+   defines. If it has no stage/gate structure at all (most projects won't),
+   answer `status`/`next`/`full` from its plain content instead of forcing
+   HERMES's 6-stage schema onto a project that was never written in that
+   shape. Do not import HERMES's own stage list into someone else's project.
+3. **Not found, and cwd is the HERMES repo itself** (check: does
+   `HERMES_GOAL_Start_to_End.md` exist at the project root?) → fall back to
+   THE END GOAL below. This section is HERMES's own roadmap and applies
+   only when HERMES is the project actually being worked on.
+4. **Not found, and cwd is NOT HERMES** → say so plainly: "No GOAL.md found
+   for this project. Want me to help draft one?" and stop there. Do **not**
+   print HERMES's own roadmap as if it were this project's goal — that is
+   the exact silent-wrong-answer failure mode documented in
+   [D10](docs/DECISIONS.md) (webdev skipping steps without disclosure) and
+   [D13](docs/DECISIONS.md) (this command's own general-purpose fix).
+
+---
+
+## HERMES's own end goal (only reached via Step 0.3 — self-referential, not a template for other projects)
 
 **THE END GOAL (state this verbatim, do not soften):**
 HERMES has *everything* — all ~20 v1-blueprint modules, each reimplemented
