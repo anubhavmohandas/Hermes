@@ -103,7 +103,7 @@ package what's already built.
   to session B and only moves to `approved/` by explicit human action; a
   reward>0.8 past approach is retrieved before a similar new task.
 
-- **STAGE 3 — Autonomy & Research** *(v1 Ph3 / 3C — NOT started; earns "autonomous")*
+- **STAGE 3 — Autonomy & Research** *(v1 Ph3 / 3C — built & unit-tested; gate proven live 2026-08-03; earns "autonomous")*
   Cron (durable SQLite, `.tick.lock`, 3-min interrupt — keystone), Delegation
   (≤3 children; no TaskStop/AskUserQuestion/EnterPlanMode for sub-agents),
   Fetcher (Tavily/Firecrawl/Playwright, SAFE_MODE), Connect (MCP client, PKCE
@@ -111,7 +111,7 @@ package what's already built.
   **Gate:** an overnight Cron job completes unattended and writes to Mnemos,
   retrievable next morning; interrupt + lock proven under forced concurrency.
 
-- **STAGE 4 — Hardening** *(v1 Ph4 / 3D — NOT started)*
+- **STAGE 4 — Hardening** *(v1 Ph4 / 3D — built & unit-tested; live-proving in progress)*
   Repeatable 7-layer audit; benchmarks in Clio (tokens/tier, latency, recall);
   REAL embedder (NVIDIA API `nv-embedqa-e5-v5`) behind `embed()`; NYX Tier 3
   fallback with jurisdiction + 2nd sensitivity check (never sensitive data);

@@ -34,6 +34,7 @@ except ImportError:  # running as a script, not a package
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent
 REASONING_LOG = HERMES_ROOT / "logs" / "reasoning_seed.jsonl"
+BENCHMARK_LOG = HERMES_ROOT / "clio" / "benchmark_history.jsonl"
 
 # Rough $/1K-token estimates for reporting only — NOT used for any billing
 # decision, purely observability. Update as pricing changes.
@@ -113,6 +114,17 @@ def report(group_by: str = "tier", since: str = None):
         "grouped_by": group_by,
         "groups": agg,
     }
+
+
+def record_benchmark(result: dict, source: str = "mnemos.benchmark") -> dict:
+    """Append a benchmark run to Clio — Stage 4's exit gate wants a
+    'benchmark baseline written to Clio', not a result that only ever
+    printed to stdout and vanished with the terminal."""
+    entry = {"timestamp": datetime.utcnow().isoformat() + "Z", "source": source, "result": result}
+    BENCHMARK_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with open(BENCHMARK_LOG, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+    return entry
 
 
 def report_all(group_by: str = "tier", since: str = None) -> dict:

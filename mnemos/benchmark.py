@@ -94,4 +94,8 @@ if __name__ == "__main__":
               f"(the benchmark exercises the HNSW index itself; there is no degraded mode)",
               file=sys.stderr)
         sys.exit(1)
-    print(json.dumps(run_benchmark(), indent=2))
+    result = run_benchmark()
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "clio"))
+    import tracker as clio_tracker
+    clio_tracker.record_benchmark(result)
+    print(json.dumps(result, indent=2))
