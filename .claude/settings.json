@@ -1,6 +1,6 @@
 {
   "statusLine": {
     "type": "command",
-    "command": "python3 \"${CLAUDE_PROJECT_DIR}/clio/statusline.py\""
+    "command": "python3 clio/statusline.py"
   }
 }
