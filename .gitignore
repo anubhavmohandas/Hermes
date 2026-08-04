@@ -24,6 +24,7 @@ curator/approved/*.json
 curator/archived/*.json
 reasoningbank/hnsw/
 reasoningbank/task_log.jsonl
+clio/*.jsonl
 
 # Secrets & credentials — never commit, security tool going public (proactive)
 .env

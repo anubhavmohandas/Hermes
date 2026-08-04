@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
 clio/statusline.py — Clio's live status line: 5-hour + 7-day rate-limit
-usage as a progress bar, rendered directly in Claude Code's own status row
-(terminal, and the "Claude Code for VS Code" panel, which is the same
-Claude Code session embedded in a webview rather than a separate product).
+usage as a progress bar, rendered in Claude Code's own status row.
+
+TERMINAL CLI ONLY. Verified 2026-08-04: the VS Code extension panel never
+invokes the statusLine command — its webview has no status row, and an
+entire multi-turn session in the panel appended nothing to usage_log.jsonl.
+statusLine is a terminal-CLI surface; in VS Code use `/usage` instead.
 
 Data source: Claude Code sends `rate_limits.five_hour.used_percentage` and
 `rate_limits.seven_day.used_percentage` via stdin JSON on every status-line
