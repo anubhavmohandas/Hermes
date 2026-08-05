@@ -27,10 +27,16 @@ import hashlib
 import json
 import os
 import re
+import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from meta.paths import load_env
+load_env()  # pulls NVIDIA_API_KEY etc. from ~/.claude/hermes/.env if not already set
 
 DIM = 256  # hash backend's fixed output dimensionality
 

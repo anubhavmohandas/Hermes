@@ -120,13 +120,15 @@ package what's already built.
   **Gate:** audit findings closed with re-run evidence; benchmark baseline in
   Clio; Tier 3 provably refuses sensitive data in a test.
 
-- **STAGE 5 — Integrations & Create** *(v1 Ph5 — the breadth that makes it "everything")*
+- **STAGE 5 — Integrations & Create** *(v1 Ph5 — built & unit-tested; fallbacks live-verified 2026-08-05)*
   db/ (Supabase), webdev/, media/ (claude-video, /watch), Composio connectors
   (sandboxed, permission-per-connector), C++ turbo memory (Python fallback),
   NotebookLM synthesis (opt-in), Laconic token-reduction mode (built
   2026-07-13), Occam minimal-code ladder mode (built 2026-07-16), Kanban.
-  Each ships with a fallback.
-  **Gate:** each module present with its fallback verified. This completes the
+  Each ships with a fallback, and each stays dormant/opt-in — nothing runs
+  until Apollo's routing table (`SKILL.md` §3) matches a real request.
+  **Gate:** each module present with its fallback verified — **met**, all
+  seven ran clean live with zero external config. This completes the
   end goal (everything except NYX).
 
 - **STAGE 6 — NYX** → **OUT OF SCOPE.** Not part of this goal. Revisit only

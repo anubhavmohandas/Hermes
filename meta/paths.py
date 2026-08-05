@@ -112,6 +112,27 @@ def state_file(*parts: str) -> Path:
     return p
 
 
+def load_env() -> None:
+    """Load KEY=value pairs from the durable .env (~/.claude/hermes/.env)
+    into os.environ, so secrets like NVIDIA_API_KEY survive across every
+    new terminal instead of needing `export` each session. `setdefault`
+    only — an explicit shell `export` always wins over the file. Plain
+    KEY=value parsing, no quoting/interpolation rules: that's the whole
+    reason this doesn't need python-dotenv as a dependency."""
+    env_file = state_file(".env")
+    if not env_file.exists():
+        return
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
+
+
 def demo():
     """Self-check.
 

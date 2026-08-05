@@ -41,6 +41,8 @@ from pathlib import Path
 HERMES_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERMES_ROOT))
 import brain
+from meta.paths import load_env
+load_env()  # pulls NVIDIA_API_KEY etc. from ~/.claude/hermes/.env if not already set
 
 NVIDIA_URL = os.environ.get("HERMES_NVIDIA_URL", "https://integrate.api.nvidia.com")
 
