@@ -188,6 +188,13 @@ def _set_status(agenda_id: str, status: str, note: str = None) -> dict:
     agenda["status"] = status
     if status == "active":
         agenda["consecutive_failures"] = 0
+        # Also clear the total-attempt counter. Without this, reactivating an
+        # agenda that stalled on MAX_TOTAL_ATTEMPTS is a no-op: tick() re-checks
+        # the same ceiling and re-stalls it on the very next pass, so `retry`
+        # silently does nothing. The ceiling is a fuse against a misclassifying
+        # unattended loop; an explicit human retry is exactly the signal that
+        # the fuse should be reset.
+        agenda["attempts"] = 0
     if note:
         agenda["progress"].append({"at": _now_iso(), "status": status, "note": note})
     _save(agenda)
