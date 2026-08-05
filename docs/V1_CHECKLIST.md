@@ -107,9 +107,14 @@ except two inverted imports (listed below).
 
 ## 4 — Tests & docs
 
-- [x] Full suite green — 144 passed at creation; **now 174 (172 pass + 2
-      by-design skips) as of 2026-07-05** after the §2/§3 additions
-      (+9 contract tests, +4 execution-trace tests, +1 PKCE test).
+- [x] Full suite green — 144 passed at creation; 174 (172 pass + 2 by-design
+      skips) as of 2026-07-05 after the §2/§3 additions (+9 contract tests,
+      +4 execution-trace tests, +1 PKCE test); **now 198 (196 pass + 2 skips)
+      as of 2026-08-05** after the codebase audit fixes (vendor-prefixed model
+      exclusion, NVIDIA readiness probe, curator state-path regression guard,
+      reflexion redaction, hook argv cap). The 174 figures elsewhere in this
+      file are dated records of what was true on 2026-07-05 and are left as
+      written.
 - [ ] Suite still green at tag time (re-run on the release commit) — *stays
       open by design; this is a tag-time gate.* Ran green today (174, 2 skips)
       on the working tree, but the box only closes when it is re-run on the

@@ -50,6 +50,20 @@ def _extract_exec_paths(cmd: str):
     return paths
 
 
+def _resolve_write_path(path: str) -> str:
+    """Absolute, normalized form of a write target, for denylist matching.
+    Relative paths resolve against the CWD, which is what the tool itself
+    does. strict=False so a not-yet-existing file still normalizes; on any
+    resolution failure the original string is returned so the denylist still
+    gets its best look at it rather than the check being skipped."""
+    if not path:
+        return path
+    try:
+        return str(Path(path).expanduser().resolve())
+    except (OSError, RuntimeError, ValueError):
+        return path
+
+
 def _is_skill_path(path: str) -> bool:
     if not path:
         return False
@@ -94,13 +108,30 @@ def run_gate(tool_name: str, tool_input: dict):
 
     if tool_name in ("write", "edit"):
         path = tool_input.get("file_path") or tool_input.get("path") or ""
-        blocked, reason = file_safety.is_write_blocked(path)
+        # Resolve BEFORE the denylist. file_safety matches on path shape, so it
+        # saw "../../../../../../etc/hosts" as a literal and missed it — the
+        # denylist only ever fired on absolute paths. Resolving first means a
+        # target is judged by where it actually lands, however it was spelled.
+        blocked, reason = file_safety.is_write_blocked(_resolve_write_path(path))
         if blocked:
             return False, "file_safety", reason
-        safe, reason = path_security.check_traversal(str(HERMES_ROOT), path)
+        # Base is the CWD, not HERMES_ROOT. A relative path in a tool call is
+        # resolved by the tool against the CWD, so that is the only base with
+        # real meaning here; HERMES_ROOT was left over from when HERMES was a
+        # single-project tool rather than a globally-installed plugin, and the
+        # check was effectively measuring against an unrelated directory.
+        #
+        # Effect is unchanged and deliberately conservative: ANY relative path
+        # escaping upward is refused, including a legitimate "../shared/x.py"
+        # in a monorepo. That false positive is kept on purpose — Write/Edit
+        # take absolute paths in practice, so this fires almost never, and the
+        # alternative (guessing a project root) invents a boundary nobody
+        # declared. Pass an absolute path for a sibling directory.
+        safe, reason = path_security.check_traversal(str(Path.cwd()), path)
         if not safe and path:
             # Only enforce traversal when a relative path was given; absolute
-            # paths outside HERMES_ROOT are legitimate (user's own files).
+            # paths outside the CWD are legitimate (the user's own files), and
+            # the resolved denylist check above is what guards those.
             if not Path(path).is_absolute():
                 return False, "path_security", reason
         # Layer 4 fires HERE — on content being written into a skill file —

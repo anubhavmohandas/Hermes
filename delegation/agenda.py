@@ -64,7 +64,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent
-AGENDA_DIR = Path(__file__).resolve().parent / "agenda"
+
+sys.path.insert(0, str(HERMES_ROOT))
+from meta.paths import state_dir  # noqa: E402
+
+# Agendas are long-running user state — the whole point is that they survive
+# across sessions and usage-limit resets — so they cannot live inside the
+# plugin's version-pinned install dir, which a plugin update deletes. Safe as a
+# whole-directory migration (unlike cron/ or curator/): delegation/agenda/ holds
+# only ag-*.json and their workspaces, no source. See meta/paths.py.
+AGENDA_DIR = state_dir("delegation", "agenda")
 
 sys.path.insert(0, str(HERMES_ROOT / "meta" / "security"))
 sys.path.insert(0, str(HERMES_ROOT / "delegation"))

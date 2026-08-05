@@ -40,7 +40,7 @@ exists.
 
 ## Test suite
 
-174 tests green (172 pass + 2 environment-conditional skips by design). Verify
+198 tests green (196 pass + 2 environment-conditional skips by design). Verify
 on the actual release commit before tagging (§4 tag-time re-check).
 
 ## Known limitations carried into v1.0 (unchanged, documented)

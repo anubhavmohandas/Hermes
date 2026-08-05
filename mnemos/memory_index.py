@@ -14,10 +14,15 @@ Pattern #6 — MEMORY.md hard caps + truncation.
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from meta.paths import state_file  # noqa: E402
+
 MAX_LINES = 200
 MAX_BYTES = 25_000
 
-DEFAULT_INDEX_PATH = Path(__file__).resolve().parent / "vault" / "MEMORY.md"
+# The index is the user's memory, so it moves with the vault (meta/paths.py)
+# instead of sitting in the plugin dir where an update deletes it.
+DEFAULT_INDEX_PATH = state_file("mnemos", "vault", "MEMORY.md")
 
 
 def enforce_caps(content: str):

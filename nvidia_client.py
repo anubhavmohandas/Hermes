@@ -81,16 +81,27 @@ def _post(endpoint: str, payload: dict, timeout: float):
         return json.loads(resp.read())
 
 
-def is_available(timeout: float = 5.0) -> bool:
-    if not api_key():
+def is_available(timeout: float = 30.0) -> bool:
+    """True only when the key actually authenticates FOR INFERENCE.
+
+    Deliberately not a /v1/models probe. That endpoint answers HTTP 200 with
+    no Authorization header at all (verified 2026-08-05), so it proves the
+    host is up and nothing whatsoever about the credentials — a key that 401s
+    on every chat call still scored `reachable: true` there, and Apollo gates
+    Tier 2 dispatch on this result (SKILL.md §61). A readiness check has to
+    exercise the path it gates, so this sends the smallest real completion
+    (max_tokens=1) instead. Costs a token per probe; that is the price of an
+    answer that isn't a guess.
+    """
+    model = load_local_model()
+    if not api_key() or not model:
         return False
-    req = urllib.request.Request(
-        f"{NVIDIA_URL}/v1/models",
-        headers={"Authorization": f"Bearer {api_key()}"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout):
-            return True
-    except (urllib.error.URLError, OSError):
+        _post("/v1/chat/completions",
+              {"model": model, "messages": [{"role": "user", "content": "hi"}],
+               "max_tokens": 1, "stream": False}, timeout)
+        return True
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError):
         return False
 
 
@@ -103,11 +114,13 @@ def status() -> dict:
         "api_key_set": key,
         "reachable": up,
         "configured_model": model or None,
-        "tier2_ready": bool(up and model),
-        "note": None if (up and model) else
+        "tier2_ready": bool(key and up and model),
+        "note": None if (key and up and model) else
                 ("no NVIDIA_API_KEY in the environment — Tier 2 has no credentials" if not key else
-                 f"NVIDIA API unreachable at {NVIDIA_URL} — check network / key validity" if not up else
-                 "no NVIDIA_MODEL set in HERMES.local.md — Tier 2 routing has no target"),
+                 "no NVIDIA_MODEL set in HERMES.local.md — Tier 2 routing has no target" if not model else
+                 f"NVIDIA API unreachable or key rejected at {NVIDIA_URL} — the probe "
+                 f"completion for '{model}' did not succeed; check network, key validity, "
+                 f"and that the key's account has access to this model"),
     }
 
 

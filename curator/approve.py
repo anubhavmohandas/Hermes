@@ -7,10 +7,19 @@ import json
 import sys
 from pathlib import Path
 
-CURATOR_DIR = Path(__file__).resolve().parent
-PENDING_DIR = CURATOR_DIR / "pending"
-APPROVED_DIR = CURATOR_DIR / "approved"
-ARCHIVED_DIR = CURATOR_DIR / "archived"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from meta.paths import state_dir  # noqa: E402
+
+# MUST resolve to the same directories curator/propose.py writes to. These were
+# repo-relative until 2026-08-05 while propose.py had already moved to
+# state_dir() — so every proposal was written to ~/.claude/hermes/curator/pending
+# and looked up in the (empty) in-repo one, and the human gate could never be
+# used. Any change here changes propose.py too; the pairing is asserted in
+# TestCurator.test_approve_and_propose_resolve_to_same_dirs.
+PENDING_DIR = state_dir("curator", "pending")
+APPROVED_DIR = state_dir("curator", "approved")
+ARCHIVED_DIR = state_dir("curator", "archived")
+CURATOR_DIR = PENDING_DIR.parent
 
 
 def _move(proposal_id: str, dest_dir: Path, new_status: str):
@@ -56,4 +65,8 @@ if __name__ == "__main__":
         print("usage: approve.py approve|reject <id>", file=sys.stderr)
         sys.exit(2)
     fn = approve if sys.argv[1] == "approve" else reject
-    print(json.dumps(fn(sys.argv[2]), indent=2))
+    result = fn(sys.argv[2])
+    print(json.dumps(result, indent=2))
+    # Exit nonzero on a miss so a scripted caller can tell "approved" from
+    # "there was nothing by that id" — it printed {"error": ...} and exited 0.
+    sys.exit(1 if "error" in result else 0)

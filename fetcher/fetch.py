@@ -205,10 +205,21 @@ def _post_json(url: str, payload: dict, headers: dict):
     req = urllib.request.Request(url, data=data, method="POST",
                                  headers={"Content-Type": "application/json",
                                           "User-Agent": USER_AGENT, **headers})
+    # _NoRedirect, same as fetch_url: `headers` carries the backend's Bearer
+    # key, and bare urlopen auto-follows redirects — which would forward that
+    # key to whatever host the redirect names, without re-entering url_safety.
+    # This is the one call in the module that sends a credential, so it gets
+    # the strictest handling: a redirect surfaces as an error, never a hop.
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=_ssl_context()), _NoRedirect)
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS,
-                                    context=_ssl_context()) as resp:
+        with opener.open(req, timeout=TIMEOUT_SECONDS) as resp:
             return json.loads(resp.read(MAX_BYTES).decode("utf-8", errors="replace")), None
+    except urllib.error.HTTPError as e:
+        if e.code in (301, 302, 303, 307, 308):
+            return None, (f"backend returned redirect {e.code} — refused "
+                          f"(an authenticated request is never re-sent to a new host)")
+        return None, f"backend error: HTTP {e.code}"
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
         return None, f"backend error: {e}"
 

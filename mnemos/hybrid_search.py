@@ -54,26 +54,42 @@ def extract_structured_patterns(query: str):
     return found
 
 
+def _like_escape(needle: str) -> str:
+    """Neutralize LIKE wildcards so a literal '_' in a path or identifier
+    matches itself instead of any character. Backslash first, or it would
+    re-escape the escapes it just added."""
+    for ch in ("\\", "%", "_"):
+        needle = needle.replace(ch, "\\" + ch)
+    return needle
+
+
 def regex_scan_messages(patterns, db_path: Path = store.DEFAULT_DB_PATH, limit: int = 10):
     if not patterns or not db_path.exists():
         return []
     conn = sqlite3.connect(str(db_path))
+    hits = []
     try:
-        rows = conn.execute("SELECT id, session_id, role, content, created_at FROM messages").fetchall()
+        # Filter in SQL, one bounded query per pattern. This used to SELECT the
+        # entire messages table into Python and substring-scan it per pattern,
+        # so every Tier B lookup loaded the whole vault into RAM. LIKE is
+        # ASCII-case-insensitive in SQLite, which is the same matching the
+        # Python `needle.lower() in content.lower()` did.
+        for kind, needle in patterns:
+            rows = conn.execute(
+                "SELECT id, session_id, role, content, created_at FROM messages "
+                "WHERE content LIKE ? ESCAPE '\\' LIMIT ?",
+                (f"%{_like_escape(needle)}%", limit)).fetchall()
+            for r in rows:
+                hits.append({
+                    "id": r[0], "session_id": r[1], "role": r[2], "content": r[3],
+                    "created_at": r[4], "matched_pattern": kind, "matched_value": needle,
+                })
     except sqlite3.OperationalError as e:
         import sys as _sys
         print(f"regex_scan_messages: SQLite unavailable ({e}) — returning no Tier B hits", file=_sys.stderr)
         return []
     finally:
         conn.close()
-    hits = []
-    for kind, needle in patterns:
-        for r in rows:
-            if needle.lower() in r[3].lower():
-                hits.append({
-                    "id": r[0], "session_id": r[1], "role": r[2], "content": r[3],
-                    "created_at": r[4], "matched_pattern": kind, "matched_value": needle,
-                })
     # de-dupe by message id, cap
     seen = set()
     deduped = []

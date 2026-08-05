@@ -21,6 +21,7 @@ CLI:
 """
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -35,6 +36,7 @@ import approval_token
 import redact
 import gate
 import skills_guard
+import tirith_security
 from meta import policy  # shared policy leaf, not the orchestrator (V1 §1)
 
 
@@ -80,13 +82,30 @@ def run_audit():
     checks.append(_check(5, "D1 token allows once then re-blocks", a1 and not a2,
                          f"first={a1} second={a2}"))
 
-    # Layer 6 — policy: Chinese-API model excluded.
-    allowed, reason = policy.check_model_allowed(1, "deepseek-chat")
-    checks.append(_check(6, "policy excludes Chinese API model", not allowed, reason[:80]))
+    # Layer 6 — tirith_security: pre-exec structural scan. Until 2026-08-05 this
+    # module was not even imported here and the two checks below were mislabeled
+    # "Layer 6" — so a green 7-layer audit proved nothing about layer 6 at all.
+    # An ELF header under a .md extension is the deterministic case (no chmod
+    # needed, so it behaves the same on every filesystem).
+    with tempfile.TemporaryDirectory() as _tmp:
+        disguised = Path(_tmp) / "readme.md"
+        disguised.write_bytes(b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 56)
+        safe, findings = tirith_security.scan_binary(str(disguised))
+        checks.append(_check(6, "tirith flags binary disguised as text", not safe,
+                             "; ".join(findings)[:80]))
+        # …and the same file reached through the gate's bash exec-path leg,
+        # which is how layer 6 actually fires in the hook.
+        allowed, layer, reason = gate.run_gate("bash", {"command": f"bash {disguised}"})
+        checks.append(_check(6, "gate runs tirith on a bash exec path",
+                             not allowed and layer == "tirith_security", f"{layer}"))
 
-    # Layer 6 — policy: sensitive task never reaches Tier 3.
+    # Tier/model policy (meta/policy.py) — not one of the 7 gate layers, but the
+    # other half of what verify.sh enforces, so it re-runs with the audit.
+    allowed, reason = policy.check_model_allowed(1, "deepseek-chat")
+    checks.append(_check("policy", "excludes Chinese API model", not allowed, reason[:80]))
+
     tier = policy.get_tier(policy.check_sensitivity("analyze this CVE-2025-9999 exploit"))
-    checks.append(_check(6, "sensitive routes to Tier 1 not 3", tier == 1, f"tier={tier}"))
+    checks.append(_check("policy", "sensitive routes to Tier 1 not 3", tier == 1, f"tier={tier}"))
 
     # Layer 7 — redact: real Anthropic key shape scrubbed.
     key = "sk-ant-api03-" + "A" * 80 + "-abcAA"

@@ -459,6 +459,28 @@ class TestGate(HermesTestCase):
         # 2>&1 and <<EOF must not be read as write targets
         self.assertEqual(gate._extract_write_targets("run 2>&1"), [])
 
+    def test_denylist_sees_where_a_relative_path_actually_lands(self):
+        # file_safety matched on path SHAPE, so "../../x/.ssh/id_rsa" never hit
+        # the "*/.ssh/id_*" pattern — the denylist only ever fired on absolute
+        # paths, and relative ones were covered incidentally by the traversal
+        # check (a different layer, for a different reason). Resolving the path
+        # first means the denylist decides on the real destination.
+        project = self.tmpdir() / "project"
+        (project / "src").mkdir(parents=True)
+        (project / ".ssh").mkdir()
+        script = (
+            "import sys, json; sys.path.insert(0, %r);"
+            "import gate;"
+            "print(json.dumps(gate.run_gate('write',"
+            " {'file_path': '../.ssh/id_rsa', 'content': 'k'})[:2]))"
+            % str(ROOT / "meta" / "security"))
+        proc = subprocess.run([sys.executable, "-c", script], capture_output=True,
+                              text=True, cwd=str(project / "src"))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        allowed, layer = json.loads(proc.stdout)
+        self.assertFalse(allowed)
+        self.assertEqual(layer, "file_safety", "must be the denylist, not incidental traversal")
+
     def _run_gate_cli(self, stdin_text: str):
         return subprocess.run(
             [sys.executable, str(ROOT / "meta" / "security" / "gate.py")],
@@ -509,13 +531,21 @@ class TestBrainRouting(HermesTestCase):
         self.assertEqual(brain.get_tier(False, "default"), 1)
 
     def test_chinese_api_model_exclusion_all_tiers(self):
-        # every tier is a remote API now — no local exemption remains
-        for model in ("deepseek-chat", "deepseek-r1:14b", "moonshot-v1"):
+        # every tier is a remote API now — no local exemption remains.
+        # Vendor-prefixed ids are the form the NVIDIA catalogue actually serves
+        # (2026-08-05: qwen/* was reaching Tier 2 while deepseek-ai/* was blocked
+        # on the same endpoint — the exclusion is by model vendor, not by host).
+        for model in ("deepseek-chat", "deepseek-r1:14b", "moonshot-v1",
+                      "deepseek-ai/deepseek-v4-pro", "qwen/qwen3-next-80b-a3b-instruct",
+                      "Qwen/Qwen2.5-72B-Instruct", "alibaba/tongyi-deepresearch-30b"):
             allowed, reason = brain.check_model_allowed(2, model)
             self.assertFalse(allowed, model)
             self.assertIn("excluded", reason)
-        allowed, _ = brain.check_model_allowed(1, "claude-sonnet-5")
-        self.assertTrue(allowed)
+        # …and the substrings stay narrow enough not to swallow the real tiers
+        for tier, model in ((1, "claude-sonnet-5"), (2, "nvidia/nemotron-3-super-120b-a12b"),
+                            (2, "meta/llama-3.3-70b-instruct"), (2, "openai/gpt-oss-120b")):
+            allowed, _ = brain.check_model_allowed(tier, model)
+            self.assertTrue(allowed, model)
 
 
 class TestBrainLogging(HermesTestCase):
@@ -552,6 +582,60 @@ class TestBrainLogging(HermesTestCase):
         e3 = brain.log_failure("route research", "assumption",
                               prevention_rule="x", failure_mode="different failure")
         self.assertNotEqual(e1["dedup_key"], e3["dedup_key"])
+
+    def test_log_failure_redacts_every_free_text_field(self):
+        # hooks/verify.sh passes the whole serialized tool_input as `task` when
+        # the gate blocks a call, so a refused write of a key-bearing file put
+        # that key into reflexion_seed.json in cleartext — gate.py redacted only
+        # its own `reason`, which never carries the payload. Layer 7 has to
+        # apply to what this module WRITES, not just to what gate.py prints.
+        key = "sk-ant-api03-" + "A" * 80 + "-abcAA"
+        entry = brain.log_failure(
+            f"file_path=/Users/x/.env content=API_KEY={key}", "validation",
+            prevention_rule=f"do not echo {key}", failure_mode=f"leaked {key}")
+        written = policy.REFLEXION_LOG.read_text()
+        self.assertNotIn(key, written)
+        self.assertNotIn(key, json.dumps(entry))
+        self.assertIn("REDACTED", entry["task"])
+        # dedup still collapses two identical failures after redaction
+        again = brain.log_failure(
+            f"file_path=/Users/x/.env content=API_KEY={key}", "validation",
+            prevention_rule=f"do not echo {key}", failure_mode=f"leaked {key}")
+        self.assertEqual(entry["dedup_key"], again["dedup_key"])
+
+
+# ---------------------------------------------------------------------------
+# verify.sh — the PreToolUse hook end to end. Runs the real script against an
+# isolated CLAUDE_CONFIG_DIR so it writes to a tmp state root, not the user's.
+# ---------------------------------------------------------------------------
+class TestVerifyHook(HermesTestCase):
+    def _run(self, tool_name, tool_input):
+        return subprocess.run(
+            ["bash", str(ROOT / "hooks" / "verify.sh")],
+            input=json.dumps({"tool_name": tool_name, "tool_input": tool_input}),
+            capture_output=True, text=True, cwd=str(ROOT),
+            env={**os.environ, "CLAUDE_CONFIG_DIR": str(self.tmpdir())})
+
+    def test_allows_an_ordinary_call(self):
+        proc = self._run("Read", {"file_path": "/tmp/x.txt"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("ALLOWED", proc.stderr)
+
+    def test_blocks_with_exit_2_not_1(self):
+        # Claude Code's PreToolUse contract: ONLY exit 2 blocks. Any other
+        # nonzero code is a non-blocking error and the tool call proceeds, so
+        # a fail-closed path that exits 1 fails OPEN.
+        proc = self._run("Write", {"file_path": "/Users/x/.ssh/id_rsa", "content": "k"})
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+
+    def test_large_write_is_not_blocked_by_argv_limits(self):
+        # The whole tool_input became a single argv for brain.py, so a Write
+        # over ARG_MAX (1MiB here) failed to exec and the hook fail-closed on an
+        # ordinary large file — a security block for a non-security reason.
+        # Layer B still receives the full payload on stdin.
+        proc = self._run("Write", {"file_path": "/tmp/big.txt", "content": "x" * 2_000_000})
+        self.assertEqual(proc.returncode, 0, proc.stderr[:400])
+        self.assertIn("ALLOWED", proc.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -843,6 +927,28 @@ class TestCuratorLoop(HermesTestCase):
     def test_unknown_id_is_reported_not_crashed(self):
         self.assertIn("error", approve.approve("err_nope"))
 
+    def test_approve_and_propose_resolve_to_same_dirs(self):
+        # The one thing setUp's patching hides. approve.py kept repo-relative
+        # dirs after propose.py moved to state_dir(), so proposals were written
+        # to ~/.claude/hermes/curator/pending and looked up in the (empty)
+        # in-repo copy — the human gate could not be used at all, while this
+        # suite stayed green because it points both modules at one tmpdir.
+        # Runs in a fresh interpreter with an isolated CLAUDE_CONFIG_DIR: real
+        # import-time resolution, no reload side effects on the live process.
+        env = {**os.environ, "CLAUDE_CONFIG_DIR": str(self.tmpdir())}
+        proc = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; sys.path.insert(0, 'curator');"
+             "import propose, approve, json;"
+             "print(json.dumps({k: [str(getattr(m, k)) for m in (propose, approve)]"
+             " for k in ('PENDING_DIR', 'APPROVED_DIR', 'ARCHIVED_DIR')}))"],
+            capture_output=True, text=True, cwd=str(ROOT), env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for key, (from_propose, from_approve) in json.loads(proc.stdout).items():
+            self.assertEqual(from_propose, from_approve, key)
+            # …and durable state, not inside the plugin install dir
+            self.assertNotIn(str(ROOT), from_approve, key)
+
 
 # ---------------------------------------------------------------------------
 # B1 — embedder backends (nvidia path fully mocked; no live API needed)
@@ -925,11 +1031,45 @@ class TestNvidiaClient(HermesTestCase):
             self.assertIn("NVIDIA_API_KEY", s["note"])
 
     def test_status_reports_honestly_when_down(self):
+        # fully configured (key AND model) but the probe fails => that, and only
+        # that, is the "unreachable / key rejected" case. A missing model is a
+        # separate diagnosis and must not be reported as unreachability.
         with mock.patch.dict("os.environ", {"NVIDIA_API_KEY": "test-key"}), \
+             mock.patch.object(nvidia_client, "load_local_model",
+                               return_value="nvidia/nemotron-3-super-120b-a12b"), \
              mock.patch.object(nvidia_client, "is_available", return_value=False):
             s = nvidia_client.status()
             self.assertFalse(s["tier2_ready"])
             self.assertIn("unreachable", s["note"])
+
+    def test_status_probe_tests_inference_not_a_public_endpoint(self):
+        # 2026-08-05 regression: is_available() used to GET /v1/models, which
+        # NVIDIA serves with NO auth at all — so a dead key reported
+        # reachable: true and Apollo would happily dispatch Tier 2 into a 401.
+        # The probe must hit the authenticated inference path it gates.
+        seen = {}
+
+        def spy(endpoint, payload, timeout):
+            seen["endpoint"], seen["payload"] = endpoint, payload
+            return {"choices": [{"message": {"content": "h"}}]}
+
+        with mock.patch.dict("os.environ", {"NVIDIA_API_KEY": "test-key"}), \
+             mock.patch.object(nvidia_client, "load_local_model",
+                               return_value="nvidia/nemotron-3-super-120b-a12b"), \
+             mock.patch.object(nvidia_client, "_post", side_effect=spy):
+            self.assertTrue(nvidia_client.is_available())
+        self.assertEqual(seen["endpoint"], "/v1/chat/completions")
+        self.assertEqual(seen["payload"]["max_tokens"], 1)  # smallest real call
+
+    def test_status_probe_false_when_key_rejected(self):
+        import urllib.error
+        err = urllib.error.HTTPError("u", 401, "Unauthorized", {}, None)
+        with mock.patch.dict("os.environ", {"NVIDIA_API_KEY": "bad-key"}), \
+             mock.patch.object(nvidia_client, "load_local_model",
+                               return_value="nvidia/nemotron-3-super-120b-a12b"), \
+             mock.patch.object(nvidia_client, "_post", side_effect=err):
+            self.assertFalse(nvidia_client.is_available())
+            self.assertFalse(nvidia_client.status()["tier2_ready"])
 
     def test_chat_refuses_without_model(self):
         with mock.patch.object(nvidia_client, "load_local_model", return_value=""):
@@ -1908,6 +2048,39 @@ class TestIntegrations(HermesTestCase):
         self.assertIn("0001_init", first["applied"])
         second = db.migrate()  # idempotent
         self.assertTrue(second["already_current"])
+
+    def test_failed_migration_rolls_back_completely(self):
+        # sqlite3.executescript() issues an implicit COMMIT before it runs, so
+        # the outer conn.execute("BEGIN") was committed away and the matching
+        # rollback() did nothing — a migration that failed on its last statement
+        # left every earlier statement permanently applied, against the module's
+        # own "each in a transaction" claim.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "hermes_db_store_rb", ROOT / "integrations" / "db" / "store.py")
+        db = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(db)
+        tmp = self.tmpdir()
+        migrations = tmp / "migrations"
+        migrations.mkdir()
+        (migrations / "0001_ok.sql").write_text("CREATE TABLE kept (a INT);")
+        (migrations / "0002_bad.sql").write_text(
+            "CREATE TABLE half_a (x INT);\nCREATE TABLE half_b (y INT);\nTHIS IS NOT SQL;")
+        self.patch_attrs(db, SQLITE_PATH=tmp / "t.sqlite", MIGRATIONS_DIR=migrations)
+
+        result = db.migrate()
+        self.assertEqual(result["failed_on"], "0002_bad")
+        self.assertEqual(result["applied"], ["0001_ok"])
+
+        tables = {r["name"] for r in db.query(
+            "SELECT name FROM sqlite_master WHERE type='table'")["rows"]}
+        self.assertIn("kept", tables)          # the migration that succeeded stands
+        self.assertNotIn("half_a", tables)     # the one that failed left nothing
+        self.assertNotIn("half_b", tables)
+        # …and the failed version was not recorded, so a fixed file re-runs
+        versions = {r["version"] for r in db.query(
+            "SELECT version FROM schema_migrations")["rows"]}
+        self.assertEqual(versions, {"0001_ok"})
 
 
 # ---------------------------------------------------------------------------

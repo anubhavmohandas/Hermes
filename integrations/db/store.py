@@ -94,13 +94,29 @@ def migrate():
             if version in done:
                 continue
             sql = path.read_text()
-            conn.execute("BEGIN")
             try:
-                conn.executescript(sql) if kind == "sqlite" else conn.execute(sql)
-                conn.execute(
-                    "INSERT INTO schema_migrations (version) VALUES (%s)" if kind == "postgres"
-                    else "INSERT INTO schema_migrations (version) VALUES (?)",
-                    (version,))
+                if kind == "sqlite":
+                    # BEGIN/COMMIT must be INSIDE the script text. executescript()
+                    # issues an implicit COMMIT before it runs, so an outer
+                    # conn.execute("BEGIN") was committed away and the following
+                    # rollback() was a no-op — a migration that failed halfway
+                    # left its earlier statements permanently applied (verified
+                    # 2026-08-05). Wrapping them in the script makes the file one
+                    # real transaction, which is what the module docstring claims.
+                    # The version row goes in the SAME script so schema and
+                    # bookkeeping commit together; version is a filename stem
+                    # matched by the [0-9]*.sql glob, quoted defensively anyway
+                    # because executescript takes no parameters.
+                    literal = version.replace("'", "''")
+                    conn.executescript(
+                        f"BEGIN;\n{sql}\n"
+                        f"INSERT INTO schema_migrations (version) VALUES ('{literal}');\n"
+                        f"COMMIT;")
+                else:
+                    conn.execute("BEGIN")
+                    conn.execute(sql)
+                    conn.execute(
+                        "INSERT INTO schema_migrations (version) VALUES (%s)", (version,))
                 conn.commit()
                 applied.append(version)
             except Exception as e:

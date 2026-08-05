@@ -61,8 +61,14 @@ try:
 except Exception:
     desc = ""
 desc = " ".join(str(desc).split())  # collapse newlines/whitespace to single spaces
+# Cap before this becomes an argv below. A Write of a >1MB file made the whole
+# tool_input exceed ARG_MAX, brain.py failed to exec, and the hook fail-closed
+# on a perfectly ordinary large write (reproduced 2026-08-05 at 1.5MB; 900KB
+# passed). Layer A cannot block on task content anyway — only
+# check_model_allowed blocks, and that reads --model, not --task — so the cap
+# costs nothing enforcement-side. Layer B still sees the FULL input on stdin.
 print(tn)
-print(desc)
+print(desc[:100000])
 ')
 if [ $? -ne 0 ]; then
     echo "verify.sh: ERROR — malformed JSON on stdin. Failing closed (BLOCK)." >&2
@@ -95,6 +101,10 @@ if [ "$GATE_EXIT" -ne 0 ]; then
     exit 2
 fi
 
-TIER=$(printf '%s' "$BRAIN_OUT" | json_field tier "?")
+# Native bash regex, not another python3 spawn: this runs on EVERY allowed tool
+# call and only feeds a log line, so it must not cost a process. json_field is
+# still used on the block path, where one extra spawn is affordable.
+TIER="?"
+[[ "$BRAIN_OUT" =~ \"tier\":[[:space:]]*([0-9]+) ]] && TIER="${BASH_REMATCH[1]}"
 echo "verify.sh: ALLOWED (tool=$TOOL_NAME, tier=$TIER)" >&2
 exit 0

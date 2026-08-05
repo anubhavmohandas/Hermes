@@ -50,9 +50,19 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent
-CRON_DIR = Path(__file__).resolve().parent
-DB_PATH = CRON_DIR / "cron.db"
-LOCK_PATH = CRON_DIR / ".tick.lock"
+
+sys.path.insert(0, str(HERMES_ROOT))
+from meta.paths import state_file  # noqa: E402
+
+# Schedules and the tick lock are runtime state, so they live under
+# ~/.claude/hermes/ like everything else (meta/paths.py) — inside the plugin's
+# version-pinned install dir they were deleted on every plugin update, taking
+# every scheduled job with them. Named per-file rather than migrating cron/
+# wholesale: this directory holds scheduler.py itself, and state_dir() refuses
+# (correctly) to move a directory containing source.
+DB_PATH = state_file("cron", "cron.db")
+LOCK_PATH = state_file("cron", ".tick.lock")
+CRON_DIR = DB_PATH.parent
 
 sys.path.insert(0, str(HERMES_ROOT / "meta" / "security"))
 import approval  # noqa: E402
@@ -241,7 +251,11 @@ def _record_to_mnemos(job_name: str, status: str, output_snippet: str):
     try:
         import hnsw_index
         if getattr(hnsw_index, "HNSW_AVAILABLE", False):
-            idx = hnsw_index.MnemosHNSW(HERMES_ROOT / "mnemos" / "vault" / "hnsw")
+            # Derive the index dir the SAME way hybrid_search.py does
+            # (db_path.parent / "hnsw"). Hardcoding HERMES_ROOT/mnemos/vault/hnsw
+            # here wrote Tier C entries into a directory no reader ever opens,
+            # so a cron result was findable by Tier A and invisible to Tier C.
+            idx = hnsw_index.MnemosHNSW(store.DEFAULT_DB_PATH.parent / "hnsw")
             idx.insert(summary)
             idx.save()
     except Exception as e:

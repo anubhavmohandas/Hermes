@@ -37,6 +37,11 @@ HERMES_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERMES_ROOT))
 from meta.paths import state_file  # noqa: E402
 
+# Layer 7 applies to what this module WRITES, not just to what gate.py prints.
+# redact.py is a pure-stdlib leaf (os/re/sys) so importing it here adds no cycle.
+sys.path.insert(0, str(HERMES_ROOT / "meta" / "security"))
+import redact  # noqa: E402
+
 # Logs are runtime state, not source: they resolve under ~/.claude/hermes/ so
 # a plugin update can't delete them (see meta/paths.py). Migrated per-file on
 # first use, so a dev checkout's tracked logs/.gitkeep stays where it is.
@@ -68,7 +73,7 @@ _BULK_RE = re.compile("|".join(BULK_KEYWORDS), re.IGNORECASE)
 # is a remote API now (the local-Ollama exemption died with the local tier),
 # so the exclusion applies unconditionally.
 EXCLUDED_API_MODELS = ["kimi", "moonshot", "glm", "zhipu", "mimo", "xiaomi",
-                        "minimax", "deepseek"]
+                        "minimax", "deepseek", "qwen", "alibaba", "tongyi"]
 
 TIER_NAMES = {1: "Tier 1 — Claude API", 2: "Tier 2 — NVIDIA API", 3: "Tier 3 — NYX fallback"}
 
@@ -160,9 +165,21 @@ def log_failure(task: str, error_category: str, prevention_rule: str, failure_mo
     dedupe even if the suggested fix wording drifts between occurrences.
     If failure_mode isn't supplied, falls back to prevention_rule for
     backward compatibility with Phase 3A call sites that only had one field.
+
+    Every free-text field is redacted BEFORE it is written (Layer 7). The
+    hot path is hooks/verify.sh, which passes the whole serialized tool_input
+    as `task` when the gate blocks a call — so a refused write of a .env or a
+    key-bearing file used to land that secret here in cleartext, in the one
+    log the security layer is supposed to protect. gate.py only redacted its
+    own `reason` string, which never carried the payload. Redaction happens
+    before the dedup hash so two occurrences of the same failure still
+    collapse to one key.
     """
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     failure_mode = failure_mode or prevention_rule
+    task = redact.redact(task)
+    failure_mode = redact.redact(failure_mode)
+    prevention_rule = redact.redact(prevention_rule)
     # non-security digest — dedup identifier only (usedforsecurity=False keeps
     # the value identical while satisfying scanners/FIPS; audit L4)
     dedup_key = hashlib.md5(f"{task}{failure_mode}".encode(), usedforsecurity=False).hexdigest()[:8]
@@ -180,7 +197,21 @@ def log_failure(task: str, error_category: str, prevention_rule: str, failure_mo
     return entry
 
 
+DEBUG_LOG_MAX_BYTES = 5 * 1024 * 1024
+
+
 def debug_log(msg: str):
+    """Append one trace line. Rotated at DEBUG_LOG_MAX_BYTES because this is
+    written on EVERY tool call (verify.sh -> brain.py check) and had no bound
+    at all — one generation is kept as .1, older is dropped. The two structured
+    logs are deliberately NOT rotated: Clio aggregates reasoning_seed.jsonl and
+    Curator dedupes reflexion_seed.json over their full history, so truncating
+    those would silently discard analysis input, not noise."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        if DEBUG_LOG.stat().st_size > DEBUG_LOG_MAX_BYTES:
+            DEBUG_LOG.replace(DEBUG_LOG.with_suffix(".log.1"))
+    except OSError:
+        pass  # missing (first write) or unrotatable — appending still works
     with open(DEBUG_LOG, "a") as f:
         f.write(f"{datetime.now(timezone.utc).isoformat()} {msg}\n")
