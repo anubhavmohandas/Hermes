@@ -27,9 +27,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mnemos"))
 from hnsw_index import MnemosHNSW, HNSW_AVAILABLE, HNSW_IMPORT_ERROR
 
-BANK_DIR = Path(__file__).resolve().parent
-RAW_LOG = BANK_DIR / "task_log.jsonl"
-INDEX_DIR = BANK_DIR / "hnsw"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from meta.paths import state_dir, state_file  # noqa: E402
+
+# Runtime state under ~/.claude/hermes/ (meta/paths.py). Named per-item
+# rather than migrating reasoningbank/ wholesale — this directory holds the
+# module's own source next to its state, and a directory-level migration
+# would carry bank.py off with it.
+RAW_LOG = state_file("reasoningbank", "task_log.jsonl")
+INDEX_DIR = state_dir("reasoningbank", "hnsw")
+BANK_DIR = RAW_LOG.parent
 
 REWARD_INJECTION_THRESHOLD = 0.8
 

@@ -33,8 +33,12 @@ except ImportError:  # running as a script, not a package
     import cc_reader
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent
-REASONING_LOG = HERMES_ROOT / "logs" / "reasoning_seed.jsonl"
-BENCHMARK_LOG = HERMES_ROOT / "clio" / "benchmark_history.jsonl"
+sys.path.insert(0, str(HERMES_ROOT))
+from meta.paths import state_file  # noqa: E402
+
+# Runtime state — see meta/paths.py. Must match meta/policy.py's REASONING_LOG.
+REASONING_LOG = state_file("logs", "reasoning_seed.jsonl")
+BENCHMARK_LOG = state_file("clio", "benchmark_history.jsonl")
 
 # Rough $/1K-token estimates for reporting only — NOT used for any billing
 # decision, purely observability. Update as pricing changes.

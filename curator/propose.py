@@ -18,13 +18,20 @@ proposed_action is a deterministic, category-keyed suggestion — not an LLM
 call. It's a starting point for the human to edit, not a finished verdict.
 """
 import json
+import sys
 from pathlib import Path
 
-CURATOR_DIR = Path(__file__).resolve().parent
-REFLEXION_PATH = CURATOR_DIR / "reflexion.json"
-PENDING_DIR = CURATOR_DIR / "pending"
-APPROVED_DIR = CURATOR_DIR / "approved"
-ARCHIVED_DIR = CURATOR_DIR / "archived"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from meta.paths import state_dir, state_file  # noqa: E402
+
+# Proposals are the user's pending decisions — runtime state under
+# ~/.claude/hermes/ (meta/paths.py), named per item because curator/ holds
+# this module's own source alongside them.
+REFLEXION_PATH = state_file("curator", "reflexion.json")
+PENDING_DIR = state_dir("curator", "pending")
+APPROVED_DIR = state_dir("curator", "approved")
+ARCHIVED_DIR = state_dir("curator", "archived")
+CURATOR_DIR = REFLEXION_PATH.parent
 
 PROPOSAL_THRESHOLD = 2  # recurrence_count >= this triggers a proposal
 

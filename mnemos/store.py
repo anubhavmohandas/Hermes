@@ -20,8 +20,14 @@ _HERMES_ROOT = Path(__file__).resolve().parent.parent
 if str(_HERMES_ROOT) not in sys.path:
     sys.path.insert(0, str(_HERMES_ROOT))
 from meta.contracts import MemoryEntry  # noqa: E402  boundary contract (V1_CHECKLIST §2)
+from meta.paths import state_dir  # noqa: E402
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parent / "vault" / "mnemos.db"
+# The vault is the user's memory, so it lives under ~/.claude/hermes/, not
+# inside the plugin's version-pinned install dir (see meta/paths.py).
+# Migrated as a *directory*, not just the .db: hybrid_search.py derives the
+# HNSW index location from db_path.parent, so the index has to travel with
+# the database or semantic search silently falls back to an empty one.
+DEFAULT_DB_PATH = state_dir("mnemos", "vault") / "mnemos.db"
 MAX_RETRIES = 15
 BACKOFF_MIN_MS = 20
 BACKOFF_MAX_MS = 150

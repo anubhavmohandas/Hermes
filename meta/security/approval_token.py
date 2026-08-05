@@ -38,7 +38,13 @@ import time
 from pathlib import Path
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent.parent
-TOKEN_DIR = HERMES_ROOT / "logs" / ".approved"
+sys.path.insert(0, str(HERMES_ROOT))
+from meta.paths import state_dir  # noqa: E402
+
+# Approval tokens are short-lived (TTL below) but must live where the rest of
+# the runtime state does — a token directory inside the plugin install would
+# vanish mid-approval on an update. See meta/paths.py.
+TOKEN_DIR = state_dir("logs", ".approved")
 TTL_SECONDS = 300
 
 

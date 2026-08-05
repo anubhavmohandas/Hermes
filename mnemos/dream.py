@@ -35,12 +35,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "curator"))
 import consolidate as curator_consolidate
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent
-DREAM_DIR = Path(__file__).resolve().parent / "dream"
+sys.path.insert(0, str(HERMES_ROOT))
+from meta.paths import state_dir, state_file  # noqa: E402
+
+# Runtime state under ~/.claude/hermes/ (meta/paths.py). The lock lives with
+# the rest of the dream state on purpose — a lock left in the old location
+# after a plugin update would guard nothing.
+DREAM_DIR = state_dir("mnemos", "dream")
 LOCK_PATH = DREAM_DIR / ".dream.lock"
 DREAM_LOG = DREAM_DIR / "dream_log.jsonl"
 CONFIG_PATH = DREAM_DIR / "dream_config.json"
 POINTER_PATH = DREAM_DIR / ".last_consolidated_line"
-RAW_REFLEXION_LOG = HERMES_ROOT / "logs" / "reflexion_seed.json"
+RAW_REFLEXION_LOG = state_file("logs", "reflexion_seed.json")
 
 DEFAULT_CONFIG = {
     "interval_hours": 24,

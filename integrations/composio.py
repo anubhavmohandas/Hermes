@@ -33,7 +33,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-REGISTRY_PATH = Path(__file__).resolve().parent / "composio_registry.json"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from meta.paths import state_file  # noqa: E402
+
+# Connected-account registry is per-user runtime state (meta/paths.py).
+REGISTRY_PATH = state_file("integrations", "composio_registry.json")
 
 # Connector catalog is illustrative — the shape (deny-by-default, per-connector
 # scopes) is the pattern, not an exhaustive Composio mirror.

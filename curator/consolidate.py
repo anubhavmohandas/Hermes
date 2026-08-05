@@ -17,12 +17,19 @@ transformation that runs on demand (or via Dream consolidation, see
 mnemos/dream.py) and overwrites ONLY curator/reflexion.json.
 """
 import json
+import sys
 from pathlib import Path
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent
-RAW_LOG = HERMES_ROOT / "logs" / "reflexion_seed.json"
-CURATOR_DIR = Path(__file__).resolve().parent
-STRUCTURED_OUT = CURATOR_DIR / "reflexion.json"
+sys.path.insert(0, str(HERMES_ROOT))
+from meta.paths import state_file  # noqa: E402
+
+# Runtime state under ~/.claude/hermes/ (meta/paths.py). STRUCTURED_OUT must
+# resolve to the same file as propose.py's REFLEXION_PATH — this module
+# overwrites it and propose.py reads it.
+RAW_LOG = state_file("logs", "reflexion_seed.json")
+STRUCTURED_OUT = state_file("curator", "reflexion.json")
+CURATOR_DIR = STRUCTURED_OUT.parent
 
 VALID_CATEGORIES = {"validation", "dependency", "logic", "assumption", "type", "unknown"}
 

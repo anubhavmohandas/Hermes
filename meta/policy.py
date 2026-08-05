@@ -28,16 +28,22 @@ from any analyzed repo — patterns only, per project constraint.
 import hashlib
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 # policy.py lives in meta/, so repo root is two levels up (parent=meta, then root).
-# LOG_DIR must resolve to <repo>/logs, exactly as when this lived in brain.py.
 HERMES_ROOT = Path(__file__).resolve().parent.parent
-LOG_DIR = HERMES_ROOT / "logs"
-REASONING_LOG = LOG_DIR / "reasoning_seed.jsonl"
-REFLEXION_LOG = LOG_DIR / "reflexion_seed.json"
-DEBUG_LOG = LOG_DIR / "debug.log"
+sys.path.insert(0, str(HERMES_ROOT))
+from meta.paths import state_file  # noqa: E402
+
+# Logs are runtime state, not source: they resolve under ~/.claude/hermes/ so
+# a plugin update can't delete them (see meta/paths.py). Migrated per-file on
+# first use, so a dev checkout's tracked logs/.gitkeep stays where it is.
+REASONING_LOG = state_file("logs", "reasoning_seed.jsonl")
+REFLEXION_LOG = state_file("logs", "reflexion_seed.json")
+DEBUG_LOG = state_file("logs", "debug.log")
+LOG_DIR = REASONING_LOG.parent
 
 # ---------------------------------------------------------------------------
 # Hard-coded sensitivity rules. NOT LLM-based — deterministic keyword match.

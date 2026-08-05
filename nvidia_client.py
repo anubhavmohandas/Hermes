@@ -43,7 +43,13 @@ sys.path.insert(0, str(HERMES_ROOT))
 import brain
 
 NVIDIA_URL = os.environ.get("HERMES_NVIDIA_URL", "https://integrate.api.nvidia.com")
-LOCAL_CONFIG = HERMES_ROOT / "HERMES.local.md"
+
+# Your settings, not source: HERMES is installed globally and assists whatever
+# project you're in, so its config lives at ~/.claude/hermes/HERMES.local.md
+# rather than inside the plugin's version-pinned install dir. A copy sitting in
+# a dev checkout is migrated across on first read (meta/paths.py).
+from meta.paths import state_file  # noqa: E402
+LOCAL_CONFIG = state_file("HERMES.local.md")
 
 
 def api_key() -> str:

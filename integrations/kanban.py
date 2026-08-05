@@ -25,7 +25,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent / "kanban.db"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from meta.paths import state_file  # noqa: E402
+
+# Board contents are the user's data — ~/.claude/hermes/ (meta/paths.py), so
+# a plugin update doesn't take the board with it.
+DB_PATH = state_file("integrations", "kanban.db")
 LANES = ("todo", "doing", "done")
 
 

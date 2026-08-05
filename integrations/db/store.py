@@ -31,9 +31,15 @@ import sqlite3
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from meta.paths import state_file  # noqa: E402
+
 DB_DIR = Path(__file__).resolve().parent
+# Migrations ship WITH the code — they are source, and must match the
+# checked-out version, so they deliberately do not move (meta/paths.py).
 MIGRATIONS_DIR = DB_DIR / "migrations"
-SQLITE_PATH = DB_DIR / "hermes_db.sqlite"
+# The database itself is user data and does move.
+SQLITE_PATH = state_file("integrations", "db", "hermes_db.sqlite")
 
 
 def backend() -> str:

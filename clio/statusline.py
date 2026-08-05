@@ -23,13 +23,21 @@ is no way to make a plugin manifest ship it directly — plugin settings.json
 only supports the `agent` and `subagentStatusLine` keys, confirmed against
 code.claude.com/docs/en/plugins-reference).
 
-Every run also appends one line to clio/usage_log.jsonl — this gives
-clio/tracker.py a real history of rate-limit usage over time, not just a
-live snapshot, so "how close was I to my weekly limit last Tuesday" is
-answerable later instead of only "how close am I right now."
+Every run appends one line to ~/.claude/hermes/clio/usage_log.jsonl (see
+meta/paths.py — NOT next to this file, which a plugin update would wipe).
+That builds a history of rate-limit usage over time rather than only a live
+snapshot. Note that clio/tracker.py does not read this file yet; it reports
+on logs/reasoning_seed.jsonl and clio/benchmark_history.jsonl. Wiring the
+usage history into tracker.py is still open.
 
-Install (project-scoped — see ../.claude/settings.json in this repo):
-  chmod +x clio/statusline.py
+Install — user-scoped, so it works in whatever project HERMES is assisting.
+Add to ~/.claude/settings.json (the path is resolved at run time so plugin
+updates don't break it):
+
+  "statusLine": {
+    "type": "command",
+    "command": "python3 \"$(ls -d $HOME/.claude/plugins/cache/hermes/hermes/*/clio/statusline.py | sort -V | tail -1)\""
+  }
 
 Test manually:
   echo '{"model":{"display_name":"Sonnet"},"rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1893456000},"seven_day":{"used_percentage":61.2,"resets_at":1893456000}}}' | python3 clio/statusline.py
@@ -41,8 +49,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 CLIO_DIR = Path(__file__).resolve().parent
-USAGE_LOG = CLIO_DIR / "usage_log.jsonl"
+HERMES_ROOT = CLIO_DIR.parent
 BAR_WIDTH = 10
+
+
+def usage_log():
+    """Resolved lazily, not at import: this file runs as Claude Code's status
+    line, where an exception at import time renders a traceback into the
+    user's prompt row. log_snapshot()'s existing OSError guard covers the
+    directory creation this does."""
+    sys.path.insert(0, str(HERMES_ROOT))
+    from meta.paths import state_file
+    return state_file("clio", "usage_log.jsonl")
 
 GREEN, YELLOW, RED, RESET = "\033[32m", "\033[33m", "\033[31m", "\033[0m"
 
@@ -78,9 +96,9 @@ def log_snapshot(model, five_h, seven_d):
         "seven_day_pct": seven_d,
     }
     try:
-        with open(USAGE_LOG, "a") as f:
+        with open(usage_log(), "a") as f:
             f.write(json.dumps(entry) + "\n")
-    except OSError:
+    except (OSError, ImportError):
         pass  # never let logging failure break the status line
 
 

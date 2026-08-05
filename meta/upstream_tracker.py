@@ -33,7 +33,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HERMES_ROOT = Path(__file__).resolve().parent.parent
-STATE_PATH = HERMES_ROOT / "meta" / "upstreams.json"
+sys.path.insert(0, str(HERMES_ROOT))
+from meta.paths import state_file  # noqa: E402
+
+# Generated, not shipped (untracked in git) — so it is runtime state and
+# belongs under ~/.claude/hermes/ with the rest. See meta/paths.py.
+STATE_PATH = state_file("meta", "upstreams.json")
 API_BASE = "https://api.github.com"
 TIMEOUT_SECONDS = 15
 

@@ -24,7 +24,8 @@ User → Apollo → brain.py (tier) → [verify.sh fires automatically as a PreT
 
 ## 1. Session start — run this once, every session
 
-1. **Read `HERMES.local.md`** (same directory as this file). It tells you: platform (cli/cowork), NVIDIA model name, vault path, active vs inactive modules, log paths, tier model names.
+1. **Read `~/.claude/hermes/HERMES.local.md`** (`$CLAUDE_CONFIG_DIR/hermes/` if that env var is set; fall back to `HERMES.local.md` beside this file in a dev checkout). It tells you: platform (cli/cowork), NVIDIA model name, vault path, active vs inactive modules, log paths, tier model names. HERMES is installed globally and assists whatever project is open, so its config and all runtime state live next to the user's Claude config, never inside the plugin's version-pinned install dir — see `meta/paths.py`.
+   Also read **`rules/authorship.md`**. It is invariant and not user-configurable; it governs every commit message, PR body, and credit line you produce in any project.
 2. **Detect environment.** If the Bash tool is available and behaves like a real shell, you're in CLI mode. If Bash is absent or restricted, you're in Cowork mode — degrade gracefully (see §6).
 3. **Self-check.** Confirm these are reachable before claiming they're active:
    - `python3 brain.py check --task "self-check" --model <TIER_1 model>` returns valid JSON
