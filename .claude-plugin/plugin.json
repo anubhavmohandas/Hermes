@@ -99,7 +99,8 @@
       "kanban",
       "turbo-memory",
       "notebooklm",
-      "composio"
+      "composio",
+      "synapse"
     ],
     "offline": {
       "nyx": "Stage 6 — out of scope (NYX not built yet)"

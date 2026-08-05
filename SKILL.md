@@ -40,7 +40,7 @@ HERMES loaded. <PLATFORM> mode.
 ✓ core: create (intake+prompts), research, tasks, documents, webdev, mnemos v1+v2, clio v1, meta/security, curator v1, reasoningbank, dream
 ✓ installed skills: docx, pptx, xlsx, pdf, ui-ux-pro-max (+6 design skills), frontend-design, theme-factory, web-artifacts-builder, webapp-testing, canvas-design (~/.claude/skills)
 ✓ autonomy: cron, delegation, fetcher, connect (Stage 3) | ✓ hardening: tier3 guard, D1 approval tokens, think-scrubber, upstream tracker, 7-layer audit (Stage 4)
-✓ laconic (token-reduction: per-turn hook + bulk-text compress, built 2026-07-13) | ✓ occam (minimal-code ladder: SessionStart+UserPromptSubmit+SubagentStart hooks, lite/full/ultra/review + 5 satellite skills, built 2026-07-16) | ○ opt-in: db, media, kanban, turbo-memory, notebooklm, composio (Stage 5 — each installs on demand with a fallback)
+✓ laconic (token-reduction: per-turn hook + bulk-text compress, built 2026-07-13) | ✓ occam (minimal-code ladder: SessionStart+UserPromptSubmit+SubagentStart hooks, lite/full/ultra/review + 5 satellite skills, built 2026-07-16) | ○ opt-in: db, media, kanban, turbo-memory, notebooklm, composio, synapse (Stage 5 — each installs on demand with a fallback)
 ✗ NYX (Stage 6): out of scope — not built yet
 ```
 
@@ -99,6 +99,7 @@ If any self-check fails, say so plainly in the status line (`✗ brain.py: NOT F
 | kanban / board / lanes / track cards | `integrations/kanban.py` (SQLite-backed multi-profile board) | Active on demand (Stage 5) — dormant until called |
 | fast top-k similarity / turbo memory search | `integrations/turbo_memory.py` (C++ if compiled, else numpy fallback) | Active on demand (Stage 5) — dormant until called |
 | NotebookLM / synthesize sources / source-grounded outline | `integrations/notebooklm.py` (local deterministic synthesis always available; online path needs a Google key, off by default) | Active on demand (Stage 5) — dormant until called |
+| dependency map / call graph / what calls this / what would break if I change X | `integrations/synapse.py` (stdlib `ast`, same-file + explicit `from X import Y` call resolution, no external deps) | Active on demand (Stage 5) — dormant until called |
 | open URL / screenshot / browser / scrape / crawl | `fetcher/fetch.py` (SAFE_MODE, SSRF-checked every hop; Tavily/Firecrawl key-gated) | Active (Stage 3) |
 | connect to Slack / GitHub / Notion / external tool | `connect/mcp_client.py` (native MCP + PKCE via `connect/oauth_pkce.py`); connectors ledgered in `integrations/composio.py` | Active (Stage 3) |
 | go laconic / be brief / less tokens | `meta/laconic.py` + `hooks/laconic_mode.sh` (per-turn UserPromptSubmit reinforcement, flag-file state, auto-clarity override) for the live session; `integrations/laconic_compress.py` (deterministic stopword-drop, keeps negations) for a one-off bulk-text payload before a Tier 2 job | Active |
@@ -217,7 +218,7 @@ If Bash isn't available or is restricted:
 | Repeatable 7-layer security audit | audit.py | 3D | Active (`meta/security/audit.py` — 11 checks, re-runnable) |
 | Laconic (token-reduction, per-turn hook + bulk-text compress) | meta/laconic.py, hooks/laconic_mode.sh, integrations/laconic_compress.py | 5 | Active — hook wired unconditionally, mode itself opt-in at runtime via natural-language toggle |
 | Occam (minimal-code ladder, SessionStart+UserPromptSubmit+SubagentStart) | meta/occam.py, hooks/occam_activate.sh, hooks/occam_mode_tracker.sh, hooks/occam_subagent.sh, skills/occam*, hooks/hermes_statusline.sh, scripts/occam_laconic_cleanup.py | 5 | Active — full ruleset at session start, short per-turn reminder, propagates to subagents; default mode `full` every session unless `/occam off` or config says otherwise |
-| Opt-in breadth (each with a fallback) | integrations/ | 5 | Active on demand: db, media, kanban, turbo-memory, notebooklm, composio (webdev promoted to skills/webdev/) |
+| Opt-in breadth (each with a fallback) | integrations/ | 5 | Active on demand: db, media, kanban, turbo-memory, notebooklm, composio, synapse (webdev promoted to skills/webdev/) |
 | NYX Tier 3 integration | — | 6 | Out of scope — NYX not built yet |
 
 Apollo knows all of these exist. Stages 0–5 are built and unit-tested (174 tests green — 172 pass + 2 environment-conditional skips by design if hnswlib/numpy aren't installed); Stage 0 is proven end-to-end on real disk, the rest at component level. NYX (Stage 6) is deliberately out of scope until NYX itself exists.

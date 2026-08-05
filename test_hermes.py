@@ -69,6 +69,7 @@ import turbo_memory
 import webdev
 import notebooklm
 import composio
+import synapse
 from clio import tracker as clio_tracker  # execution-trace aggregation (V1_CHECKLIST §3)
 
 
@@ -1865,6 +1866,33 @@ class TestIntegrations(HermesTestCase):
     def test_composio_deny_by_default_and_unknown_rejected(self):
         self.patch_attrs(composio, REGISTRY_PATH=self.tmpdir() / "reg.json")
         self.assertFalse(composio.enable("does-not-exist")["enabled"])
+
+    def test_synapse_builds_graph_and_finds_hub(self):
+        d = self.tmpdir()
+        (d / "callee.py").write_text("def helper():\n    return 1\n")
+        (d / "caller.py").write_text(
+            "from callee import helper\n\n"
+            "def a():\n    return helper()\n\n"
+            "def b():\n    return helper()\n"
+        )
+        graph = synapse.build_graph(str(d))
+        self.assertEqual(graph["files_scanned"], 2)
+        self.assertEqual(graph["files_skipped"], [])
+        node_ids = {n["id"] for n in graph["nodes"]}
+        self.assertIn("def:callee.py:helper", node_ids)
+        self.assertIn("def:caller.py:a", node_ids)
+        top = synapse.hubs(graph, top_n=1)
+        self.assertEqual(top[0]["id"], "def:callee.py:helper")
+        self.assertEqual(top[0]["in_degree"], 2)  # called from both a() and b()
+
+    def test_synapse_skips_unparseable_file_without_crashing(self):
+        d = self.tmpdir()
+        (d / "broken.py").write_text("def not valid python(:\n")
+        (d / "fine.py").write_text("def ok():\n    pass\n")
+        graph = synapse.build_graph(str(d))
+        self.assertEqual(graph["files_scanned"], 1)
+        self.assertEqual(len(graph["files_skipped"]), 1)
+        self.assertEqual(graph["files_skipped"][0]["file"], "broken.py")
         st = composio.status()
         self.assertEqual(st["enabled_count"], 0)  # deny by default
 
