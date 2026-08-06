@@ -141,6 +141,18 @@ def compression_reminder(mode: str) -> str:
     return base
 
 
+def session_start() -> str | None:
+    """SessionStart entrypoint. The flag file is persistent on disk, so a mode
+    set once already survives across sessions — what was missing is that the
+    user never SAW it come back. Occam announces itself at SessionStart; this
+    is the same contract for Laconic, so both modes are visible on every new
+    chat instead of one being silently on. Returns None when inactive."""
+    mode = read_flag()
+    if mode is None:
+        return None
+    return f"{visible_banner('LACONIC', mode)}\n\n{compression_reminder(mode)}"
+
+
 def clarity_override_note() -> str:
     return (
         "NOTE: this turn's content matches a safety-critical pattern (destructive "
@@ -260,6 +272,14 @@ def validate_compression(original: str, compressed: str) -> dict:
 if __name__ == "__main__":
     import json
     import sys
+
+    # SessionStart: no JSON payload, raw text on stdout (same contract as
+    # hooks/occam_activate.sh -> meta/occam.py SessionStart).
+    if len(sys.argv) > 1 and sys.argv[1] == "SessionStart":
+        out = session_start()
+        if out:
+            print(out)
+        sys.exit(0)
 
     try:
         # Strip a UTF-8 BOM some shells/editors prepend when piping on

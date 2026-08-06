@@ -63,9 +63,24 @@ DEFAULT_TIMEOUT_SECONDS = 300
 # throttling" — NOT a real task failure. delegation/agenda.py retries these
 # on the next cron tick instead of counting them toward its stall limit.
 # Matched case-insensitively against child stdout+stderr on nonzero exit.
+# "session limit" / "resets" added 2026-08-06 after a live overnight run burned
+# two stall-budget failures on the Claude Code CLI's actual wording:
+#   "You've hit your session limit · resets 4:30am (Asia/Calcutta)"
+# which matched NONE of the original markers — not "usage limit" (it says
+# session), not "limit reached" (it says hit your session limit), not "resets
+# at" (no "at" before the time). Match the strings the CLI really prints, not
+# the ones it plausibly might.
 RATE_LIMIT_MARKERS = ("usage limit", "rate limit", "limit reached",
-                      "rate_limit", "overloaded", "quota", "429", "529",
-                      "resets at")
+                      "rate_limit", "session limit", "overloaded", "quota",
+                      "429", "529", "resets at", "resets ")
+
+# Transient environment failures — the machine slept, wifi dropped, DNS was not
+# up yet. Not a task failure either: the goal was never attempted. Treated
+# exactly like a rate limit so an overnight loop does not spend its stall budget
+# on the laptop being asleep. Found live 2026-08-06 (ENOTFOUND at 05:02).
+TRANSIENT_MARKERS = ("enotfound", "econnrefused", "econnreset", "etimedout",
+                     "unable to connect to api", "network is unreachable",
+                     "temporary failure in name resolution", "getaddrinfo")
 
 
 def classify_output(returncode: int, output: str) -> str:
@@ -77,6 +92,8 @@ def classify_output(returncode: int, output: str) -> str:
         return "completed"
     lowered = (output or "").lower()
     if any(m in lowered for m in RATE_LIMIT_MARKERS):
+        return "rate_limited"
+    if any(m in lowered for m in TRANSIENT_MARKERS):
         return "rate_limited"
     return f"failed(rc={returncode})"
 
