@@ -96,3 +96,12 @@ meta/upstreams.json
 integrations/db/*.sqlite*
 integrations/kanban.db*
 integrations/composio_registry.json
+
+# Cowork-local CLAUDE_CONFIG_DIR — durable runtime state (upstream watchlist,
+# etc.) redirected here because Cowork's sandbox $HOME isn't persistent, but
+# this workspace folder is. See meta/paths.py. Split into two dirs (batch1/
+# batch2) so the 2am/3am upstream-watch scheduled tasks each get their own
+# 26-repo slice and stay under GitHub's 60 req/hr anonymous rate limit.
+.claude_config/
+.claude_config_batch1/
+.claude_config_batch2/
