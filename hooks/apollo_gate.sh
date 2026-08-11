@@ -34,12 +34,14 @@ fi
 
 if command -v python3 >/dev/null 2>&1; then
     python3 -c '
-import json, sys
+import json, os, sys
 try:
     d = json.load(sys.stdin)
     prompt = d.get("prompt", "")
+    cwd = d.get("cwd", "") or ""
 except Exception:
     prompt = ""
+    cwd = ""
 
 reminder = (
     "HERMES plugin is active in this session (any project folder, CLI or Cowork). "
@@ -53,6 +55,25 @@ reminder = (
     "a direct factual question), proceeding without it is fine — just do not silently "
     "skip it for anything that is actually a create/build/make request."
 )
+
+# Per-project decision/flow log (skills/create §3b scaffolds these for
+# website/mobile/tool projects). Checked from disk every turn, not just at
+# SessionStart, so it survives context compaction and new chats in the same
+# project — the actual problem this was built to solve (2026-08-11).
+try:
+    if cwd and os.path.isfile(os.path.join(cwd, "hermes", "decisions.md")):
+        reminder += (
+            " This project has hermes/decisions.md and hermes/flow.md — append "
+            "any non-obvious decision (library choice, architecture, rejected "
+            "alternative) to decisions.md and update flow.md when the entry "
+            "point or call order changes; never create a new dated copy of "
+            "either file. Before asking the user to accept a major change, "
+            "quiz yourself on it first — what it does, why this approach over "
+            "the alternatives, what it risks — and only ask for acceptance if "
+            "you would pass."
+        )
+except Exception:
+    pass
 
 out = {
     "hookSpecificOutput": {

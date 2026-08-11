@@ -1,0 +1,22 @@
+# {{PROJECT_NAME}} — Execution flow
+
+APPEND/UPDATE-ONLY. Never create a second copy of this file. When the
+entry point, call order, or module boundaries change, edit the relevant
+section below — don't leave it stale and don't fork a new file.
+
+## Entry point
+
+<!-- Where execution actually starts (main.py / index.ts / cmd/*, the
+     actual file+line, not the conceptual "the app starts here"). -->
+
+## Call order
+
+<!-- Top-level trace: which function calls which, in the order a real
+     request/command/build actually travels. Update this when you add,
+     remove, or reorder a step in the main path — not for every function
+     you touch, only when the *shape* of the flow changes. -->
+
+## Recent changes to this flow
+
+<!-- One line per change: date, what changed in the flow, why. Append at
+     the bottom, oldest first — same discipline as decisions.md. -->

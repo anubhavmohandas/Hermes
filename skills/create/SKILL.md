@@ -49,6 +49,34 @@ Echo back a compact brief — "Building: [what] for [audience], goal [goal],
 [length/stack/format], style [style]" — and get a yes or an adjustment
 BEFORE building. This is the cheap moment to be wrong.
 
+## 3b. Scaffold `hermes/` (website / mobile / tool types only)
+
+Only for deliverable types that produce a standalone code project —
+`website`, `mobile`, `tool`. Skip for presentation/report/spreadsheet/pdf/
+research/plan/content — those aren't codebases with an execution flow to
+track.
+
+1. **Check first, idempotent:** if `hermes/decisions.md` already exists at
+   the project root, do nothing — this runs once per project, ever. Never
+   overwrite, never create a second dated copy.
+2. Otherwise, create `hermes/decisions.md` and `hermes/flow.md` from
+   `skills/create/templates/decisions.md.template` and
+   `flow.md.template`, substituting `{{PROJECT_NAME}}`.
+3. Mention it once to the user in the delivery summary (§5) — don't make
+   a separate announcement.
+
+Ongoing discipline once these exist (this session and every future one —
+`hooks/apollo_gate.sh` reminds every turn when the files are present):
+- Append a decision to `hermes/decisions.md` for any non-obvious call
+  (library choice, architecture, rejected alternative) — never a new
+  dated file.
+- Update `hermes/flow.md` when the entry point or call order actually
+  changes — not on every edit.
+- Before presenting a major change (new dependency, architecture shift,
+  breaking change) for the user to accept, quiz yourself on it first: can
+  you state what it does, why this approach over the alternatives, and
+  what it risks? If not, you're not ready to ask for acceptance yet.
+
 ## 4. Execute
 
 Follow the file's **Execution** section step by step. Non-negotiables:

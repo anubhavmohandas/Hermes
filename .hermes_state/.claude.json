@@ -1,0 +1,24 @@
+{
+  "firstStartTime": "2026-08-11T05:08:14.313Z",
+  "machineID": "c26ee198c3885c9041de4152313bdfa33c327089e71e9db5d769ed60b669753f",
+  "opusProMigrationComplete": true,
+  "sonnet1m45MigrationComplete": true,
+  "seenNotifications": {},
+  "hasResetAutoModeOptInForDefaultOffer": true,
+  "migrationVersion": 13,
+  "userID": "43c06f1f757406b528f39326229a53915eba4f0758a82c9bb73b139cf90f9fd7",
+  "projects": {
+    "/sessions/serene-happy-cannon/mnt/HERMES/hermes": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": false,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "hasUnseenTeamArtifacts": false
+    }
+  }
+}

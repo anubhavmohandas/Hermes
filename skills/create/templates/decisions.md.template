@@ -1,0 +1,28 @@
+# {{PROJECT_NAME}} — Decisions
+
+APPEND-ONLY. This file is never replaced with a new dated copy — every
+entry below goes at the bottom, oldest first. If you (the AI working this
+codebase) are about to create `decisions-2026-*.md` or similar, stop:
+open this file and append instead.
+
+Log an entry here whenever you make a call that isn't obvious from the
+diff alone — picking a library, choosing an architecture, rejecting an
+alternative, a tradeoff a future session would otherwise have to
+re-derive from scratch. Skip routine changes (typo fixes, formatting,
+straightforward bug fixes with one obvious solution).
+
+Entry format:
+
+```
+## D<n> — <short title> (<date>)
+
+**Decision:** what was chosen.
+**Why:** the reasoning — what alternatives existed, what the tradeoff was.
+**Alternatives rejected:** what else was considered and why it lost.
+```
+
+Before proposing a major change (new dependency, architecture shift,
+breaking a public interface), read this file first — the decision may
+already be made, or the same alternative may already be rejected.
+
+---
