@@ -40,7 +40,7 @@ HERMES loaded. <PLATFORM> mode.
 ✓ core: create (intake+prompts), research, tasks, documents, webdev, mnemos v1+v2, clio v1, meta/security, curator v1, reasoningbank, dream
 ✓ installed skills: docx, pptx, xlsx, pdf, ui-ux-pro-max (+6 design skills), frontend-design, theme-factory, web-artifacts-builder, webapp-testing, canvas-design (~/.claude/skills)
 ✓ autonomy: cron, delegation, fetcher, connect (Stage 3) | ✓ hardening: tier3 guard, D1 approval tokens, think-scrubber, upstream tracker, 7-layer audit (Stage 4)
-✓ laconic (token-reduction: per-turn hook + bulk-text compress, built 2026-07-13) | ✓ occam (minimal-code ladder: SessionStart+UserPromptSubmit+SubagentStart hooks, lite/full/ultra/review + 5 satellite skills, built 2026-07-16) | ○ opt-in: db, media, kanban, turbo-memory, notebooklm, composio, synapse (Stage 5 — each installs on demand with a fallback)
+✓ laconic (token-reduction: per-turn hook + bulk-text compress, built 2026-07-13) | ✓ occam (minimal-code ladder: SessionStart+UserPromptSubmit+SubagentStart hooks, lite/full/ultra/review + 5 satellite skills, built 2026-07-16) | ✓ palimpsest (AI-watermark/provenance-metadata stripping: PostToolUse hook on Write/Edit, safe/aggressive/off, built 2026-08-23) | ○ opt-in: db, media, kanban, turbo-memory, notebooklm, composio, synapse (Stage 5 — each installs on demand with a fallback)
 ✗ NYX (Stage 6): out of scope — not built yet
 ```
 
@@ -220,6 +220,7 @@ If Bash isn't available or is restricted:
 | Repeatable 7-layer security audit | audit.py | 3D | Active (`meta/security/audit.py` — 11 checks, re-runnable) |
 | Laconic (token-reduction, per-turn hook + bulk-text compress) | meta/laconic.py, hooks/laconic_mode.sh, integrations/laconic_compress.py | 5 | Active — hook wired unconditionally, mode itself opt-in at runtime via natural-language toggle |
 | Occam (minimal-code ladder, SessionStart+UserPromptSubmit+SubagentStart) | meta/occam.py, hooks/occam_activate.sh, hooks/occam_mode_tracker.sh, hooks/occam_subagent.sh, skills/occam*, hooks/hermes_statusline.sh, scripts/occam_laconic_cleanup.py | 5 | Active — full ruleset at session start, short per-turn reminder, propagates to subagents; default mode `full` every session unless `/occam off` or config says otherwise |
+| Palimpsest (AI-watermark/provenance-metadata stripping, PostToolUse hook) | meta/palimpsest.py, hooks/palimpsest_activate.sh, hooks/palimpsest_gate.sh, hooks/palimpsest_clean.sh, skills/palimpsest/, integrations/palimpsest/ | 5 | Active — default mode `safe` every session unless `/palimpsest off` or config says otherwise; cleans files right after Write/Edit, does not touch chat text before render (no hook in this platform exposes that) |
 | Opt-in breadth (each with a fallback) | integrations/ | 5 | Active on demand: db, media, kanban, turbo-memory, notebooklm, composio, synapse (webdev promoted to skills/webdev/) |
 | NYX Tier 3 integration | — | 6 | Out of scope — NYX not built yet |
 

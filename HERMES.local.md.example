@@ -9,7 +9,7 @@ VAULT_PATH: hermes/mnemos/vault
 # Modules currently wired and answering requests.
 # Source of truth is .claude-plugin/plugin.json ("modules.active") — keep these
 # in sync with it; this line is what Apollo reads at session start.
-ACTIVE_MODULES: create, webdev, research, tasks, documents, mnemos-v2, clio-v1, meta/security, curator-v1, reasoningbank, dream, nvidia-dispatch, cron, delegation, agenda, fetcher, connect, laconic, occam
+ACTIVE_MODULES: create, webdev, research, tasks, documents, mnemos-v2, clio-v1, meta/security, curator-v1, reasoningbank, dream, nvidia-dispatch, cron, delegation, agenda, fetcher, connect, laconic, occam, palimpsest
 
 # Opt-in integrations — built, but off until you explicitly enable one
 # (plugin.json "modules.opt_in"). None run by default.

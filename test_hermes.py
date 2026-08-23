@@ -28,7 +28,8 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent
 for sub in ("", "meta", "meta/security", "mnemos", "reasoningbank", "curator",
-            "cron", "delegation", "fetcher", "connect", "integrations"):
+            "cron", "delegation", "fetcher", "connect", "integrations",
+            "integrations/palimpsest"):
     sys.path.insert(0, str(ROOT / sub))
 # integrations/db/store.py is loaded by file path in its test — NOT added to
 # sys.path, so it can't shadow mnemos/store.py (both are named `store`).
@@ -37,6 +38,7 @@ import brain
 from meta import policy  # policy core; brain re-exports it. Patch/read HERE for log-path redirection.
 from meta import contracts  # V1_CHECKLIST §2 boundary contracts
 from meta import occam
+from meta import palimpsest
 import file_safety
 import path_security
 import url_safety
@@ -70,6 +72,10 @@ import webdev
 import notebooklm
 import composio
 import synapse
+import text_unicode as palimpsest_text_unicode
+import image_meta as palimpsest_image_meta
+import container_meta as palimpsest_container_meta
+import format_route as palimpsest_format_route
 from clio import tracker as clio_tracker  # execution-trace aggregation (V1_CHECKLIST §3)
 
 
@@ -1134,6 +1140,7 @@ class TestActiveModulesProvablyRun(HermesTestCase):
         "connect": "connect/mcp_client.py",
         "laconic": "meta/laconic.py",
         "occam": "meta/occam.py",
+        "palimpsest": "meta/palimpsest.py",
     }
 
     def _active_modules(self):
@@ -2214,6 +2221,214 @@ class TestContracts(HermesTestCase):
         self.assertTrue(all(isinstance(r, contracts.ExecutionResult) for r in results))
         self.assertEqual(results[0].prompt, "one")
         self.assertEqual(results[1].prompt, "two")
+
+
+class TestPalimpsest(HermesTestCase):
+    """Unit coverage for meta/palimpsest.py, mirroring TestOccam's shape:
+    flag-file IPC, command parsing, exact-match deactivation, config-merge
+    default, and the actual PostToolUse enforcement path end to end."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp(prefix="palimpsest-test-")
+        self._env_patch = mock.patch.dict(os.environ, {
+            "CLAUDE_CONFIG_DIR": self._tmp,
+            "XDG_CONFIG_HOME": self._tmp,
+        })
+        self._env_patch.start()
+        palimpsest.FLAG_PATH = Path(self._tmp) / ".hermes-palimpsest-active"
+
+    def tearDown(self):
+        self._env_patch.stop()
+
+    def test_parse_palimpsest_command_variants(self):
+        self.assertEqual(palimpsest.parse_palimpsest_command("/palimpsest safe"), ("set", "safe"))
+        self.assertEqual(palimpsest.parse_palimpsest_command("/palimpsest aggressive"), ("set", "aggressive"))
+        self.assertEqual(palimpsest.parse_palimpsest_command("/palimpsest off"), ("set", "off"))
+        self.assertEqual(palimpsest.parse_palimpsest_command("/palimpsest"), ("report", None))
+        self.assertEqual(palimpsest.parse_palimpsest_command("/palimpsest default aggressive"), ("default", "aggressive"))
+        self.assertEqual(palimpsest.parse_palimpsest_command("write me a poem"), (None, None))
+
+    def test_deactivation_is_exact_match_not_substring(self):
+        self.assertTrue(palimpsest.is_deactivation_command("stop palimpsest"))
+        self.assertTrue(palimpsest.is_deactivation_command("Palimpsest Off."))
+        self.assertFalse(
+            palimpsest.is_deactivation_command("please stop palimpsest from double-cleaning"),
+            "incidental phrasing must not deactivate",
+        )
+
+    def test_write_default_mode_merges_not_overwrites(self):
+        cfg_path = palimpsest._external_config_dir() / "config.json"
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        cfg_path.write_text(json.dumps({"defaultMode": "safe", "customSetting": 42}))
+        palimpsest.write_default_mode("aggressive")
+        merged = json.loads(cfg_path.read_text())
+        self.assertEqual(merged["defaultMode"], "aggressive")
+        self.assertEqual(merged["customSetting"], 42, "existing config fields must survive the write")
+
+    def test_default_mode_is_safe_not_off(self):
+        self.assertEqual(palimpsest.default_mode(), "safe")
+
+    def test_post_tool_use_cleans_written_file(self):
+        palimpsest.safe_write_flag("safe")
+        f = self.tmpdir() / "out.md"
+        f.write_text("Hello" + chr(0x200B) + "World")
+        note = palimpsest.handle_post_tool_use("Write", str(f))
+        self.assertIsNotNone(note)
+        self.assertEqual(f.read_text(), "HelloWorld")
+
+    def test_post_tool_use_skips_denylisted_path(self):
+        palimpsest.safe_write_flag("safe")
+        f = self.tmpdir() / ".env"
+        f.write_text("SECRET" + chr(0x200B))
+        note = palimpsest.handle_post_tool_use("Write", str(f))
+        self.assertIsNone(note)
+        self.assertEqual(f.read_text(), "SECRET" + chr(0x200B))
+
+    def test_post_tool_use_noop_when_off(self):
+        palimpsest.safe_write_flag("off")
+        f = self.tmpdir() / "out.md"
+        f.write_text("Hello" + chr(0x200B) + "World")
+        note = palimpsest.handle_post_tool_use("Write", str(f))
+        self.assertIsNone(note)
+        self.assertEqual(f.read_text(), "Hello" + chr(0x200B) + "World")
+
+    def test_post_tool_use_ignores_non_write_tools(self):
+        palimpsest.safe_write_flag("safe")
+        f = self.tmpdir() / "out.md"
+        f.write_text("Hello" + chr(0x200B) + "World")
+        self.assertIsNone(palimpsest.handle_post_tool_use("Bash", str(f)))
+
+
+class TestPalimpsestEngine(HermesTestCase):
+    """integrations/palimpsest/: the format-specific cleaners. Verified
+    against real Pillow-written PNG/JPEG fixtures during development (round
+    trip: metadata gone, pixel data bit-identical) -- these tests cover the
+    same ground with synthetic bytes so they don't need Pillow installed."""
+
+    def test_clean_text_strips_invisible_unicode_preserves_emoji(self):
+        text = "Hello" + chr(0x200B) + "World"
+        cleaned, stats = palimpsest_text_unicode.clean_text(text)
+        self.assertEqual(cleaned, "HelloWorld")
+        self.assertEqual(stats["removed_count"], 1)
+
+        family = "\U0001F468" + chr(0x200D) + "\U0001F469" + chr(0x200D) + "\U0001F467"
+        cleaned2, _ = palimpsest_text_unicode.clean_text(family)
+        self.assertEqual(cleaned2, family, "emoji ZWJ sequence must survive Layer A cleaning")
+
+    def test_clean_text_flag_tag_sequence_preserved(self):
+        england = "\U0001F3F4\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F"
+        cleaned, _ = palimpsest_text_unicode.clean_text(england)
+        self.assertEqual(cleaned, england)
+
+    def test_clean_text_aggressive_confusables_opt_in(self):
+        cyr = "p" + chr(0x0430) + "ypal.com"
+        cleaned_safe, _ = palimpsest_text_unicode.clean_text(cyr)
+        self.assertEqual(cleaned_safe, cyr, "confusables must survive when not aggressive")
+        cleaned_aggr, _ = palimpsest_text_unicode.clean_text(cyr, aggressive_confusables=True)
+        self.assertEqual(cleaned_aggr, "paypal.com")
+
+    def test_clean_entity_references_removes_encoded_zwsp(self):
+        out, n = palimpsest_text_unicode.clean_entity_references("a&#8203;b&#x200b;c&amp;d")
+        self.assertEqual(out, "abc&amp;d")
+        self.assertEqual(n, 2)
+
+    def test_png_strips_text_chunk_keeps_pixel_chunks(self):
+        import struct
+        import zlib
+
+        def chunk(ctype, payload):
+            return struct.pack(">I", len(payload)) + ctype + payload + struct.pack(">I", zlib.crc32(ctype + payload))
+
+        png = (
+            palimpsest_image_meta.PNG_SIG
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
+            + chunk(b"tEXt", b"Software\x00AI Generator")
+            + chunk(b"IDAT", b"\x78\x9c\x63\x00\x01\x00\x00\x05\x00\x01")
+            + chunk(b"IEND", b"")
+        )
+        cleaned, actions = palimpsest_image_meta.clean_png(png)
+        self.assertNotIn(b"tEXt", cleaned)
+        self.assertIn(b"IHDR", cleaned)
+        self.assertIn(b"IDAT", cleaned)
+        self.assertTrue(cleaned.startswith(palimpsest_image_meta.PNG_SIG))
+        self.assertEqual(len(actions), 1)
+
+    def test_jpeg_strips_app1_exif_keeps_scan_data(self):
+        import struct
+
+        def seg(marker, payload):
+            return bytes([0xFF, marker]) + struct.pack(">H", len(payload) + 2) + payload
+
+        soi = b"\xff\xd8"
+        app1 = seg(0xE1, b"Exif\x00\x00fake-ai-generator-exif")
+        sos = seg(0xDA, b"\x03\x01\x00\x02\x11\x03\x11\x00\x3f\x00")
+        scan = b"\x12\x34\x56\xff\x00\x78"
+        eoi = b"\xff\xd9"
+        jpeg = soi + app1 + sos + scan + eoi
+        cleaned, actions = palimpsest_image_meta.clean_jpeg(jpeg)
+        self.assertNotIn(b"fake-ai-generator-exif", cleaned)
+        self.assertIn(scan, cleaned)
+        self.assertTrue(cleaned.startswith(soi) and cleaned.endswith(eoi))
+        self.assertEqual(len(actions), 1)
+
+    def test_ooxml_blanks_identity_keeps_functional_fields(self):
+        import zipfile
+        from io import BytesIO
+
+        core_xml = (
+            '<?xml version="1.0"?>'
+            '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+            'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+            '<dc:creator>ClaudeBot</dc:creator>'
+            '<dcterms:created xmlns:dcterms="http://purl.org/dc/terms/">2026-08-23T00:00:00Z</dcterms:created>'
+            '</cp:coreProperties>'
+        )
+        doc_xml = (
+            '<?xml version="1.0"?><w:document xmlns:w="http://x"><w:body><w:p><w:r>'
+            '<w:t>Hello' + chr(0x200B) + 'World</w:t></w:r></w:p></w:body></w:document>'
+        )
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("docProps/core.xml", core_xml)
+            zf.writestr("word/document.xml", doc_xml)
+
+        cleaned, actions = palimpsest_container_meta.clean_ooxml(buf.getvalue())
+        zf2 = zipfile.ZipFile(BytesIO(cleaned))
+        core_out = zf2.read("docProps/core.xml").decode()
+        doc_out = zf2.read("word/document.xml").decode()
+        self.assertNotIn("ClaudeBot", core_out)
+        self.assertIn("2026-08-23T00:00:00Z", core_out, "functional date field must survive")
+        self.assertNotIn(chr(0x200B), doc_out)
+        self.assertIn("HelloWorld", doc_out)
+        self.assertTrue(actions)
+
+    def test_pdf_blanks_info_dict_preserves_byte_offsets(self):
+        pdf = (
+            b"%PDF-1.4\n"
+            b"2 0 obj<< /Producer (AI Writer 1.0) /Author (Claude) >>endobj\n"
+            b"trailer<< /Info 2 0 R >>\n%%EOF"
+        )
+        cleaned, actions = palimpsest_container_meta.clean_pdf(pdf)
+        self.assertNotIn(b"AI Writer", cleaned)
+        self.assertEqual(len(cleaned), len(pdf), "same-length blanking must preserve xref offsets")
+        self.assertTrue(actions)
+
+    def test_html_removes_generator_meta_and_signature_comment(self):
+        html = (
+            '<html><head><meta name="generator" content="Claude"></head>'
+            "<body>Hi<!-- Generated by ChatGPT --></body></html>"
+        )
+        cleaned, actions = palimpsest_container_meta.clean_html(html)
+        self.assertNotIn("generator", cleaned.lower())
+        self.assertNotIn("Generated by ChatGPT", cleaned)
+        self.assertTrue(actions)
+
+    def test_format_route_classifies_and_denylists(self):
+        self.assertEqual(palimpsest_format_route.classify(Path("a.png")), "image")
+        self.assertEqual(palimpsest_format_route.classify(Path("a.docx")), "container")
+        self.assertEqual(palimpsest_format_route.classify(Path("a.py")), "text")
+        self.assertTrue(palimpsest_format_route.is_denylisted(Path("/x/.env")))
+        self.assertFalse(palimpsest_format_route.is_denylisted(Path("/x/report.docx")))
 
 
 if __name__ == "__main__":

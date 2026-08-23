@@ -12,7 +12,7 @@ Built by [Anubhav Mohandas](https://github.com/anubhavmohandas), grounded in 1,4
 
 - [Install](#install) · [First run](#first-run)
 - [How you actually use it](#how-you-actually-use-it) — the two interfaces
-- **Usage by task** — [build something](#1-build-something-the-create-flow) · [research](#2-research-the-web) · [memory](#3-memory--remember-and-recall) · [tasks](#4-tasks--plans) · [cost](#5-cost--token-tracking-clio) · [modes](#6-behavioral-modes--occam--laconic) · [self-improvement](#7-self-improvement--curator-reasoningbank-dream) · [autonomy](#8-autonomy--cron-agenda-delegation) · [web + MCP](#9-live-web-access--mcp-connections) · [code intel](#10-code-intelligence--repo-review) · [opt-in](#11-opt-in-integrations) · [security](#12-security-tools-you-can-run-yourself)
+- **Usage by task** — [build something](#1-build-something-the-create-flow) · [research](#2-research-the-web) · [memory](#3-memory--remember-and-recall) · [tasks](#4-tasks--plans) · [cost](#5-cost--token-tracking-clio) · [modes](#6-behavioral-modes--occam--laconic) · [watermark cleaning](#6b-palimpsest--no-ai-watermark-leaves-hermes) · [self-improvement](#7-self-improvement--curator-reasoningbank-dream) · [autonomy](#8-autonomy--cron-agenda-delegation) · [web + MCP](#9-live-web-access--mcp-connections) · [code intel](#10-code-intelligence--repo-review) · [opt-in](#11-opt-in-integrations) · [security](#12-security-tools-you-can-run-yourself)
 - [Slash commands](#slash-commands) · [Full CLI cheatsheet](#full-cli-cheatsheet) · [Recipes](#recipes--multi-module-workflows)
 - [Architecture](#architecture) · [Model routing](#model-routing) · [Status](#status)
 - [Known limitations](#known-limitations--read-before-trusting-retrieval-quality) · [Security constraints](#security-constraints--non-negotiable) · [Troubleshooting](#troubleshooting)
@@ -294,6 +294,23 @@ python3 integrations/laconic_compress.py "the quick brown fox is on the mat"
 
 ---
 
+## 6b. Palimpsest — no AI watermark leaves HERMES
+
+On by default at level `safe` (unlike Laconic/Occam, which are off-by-phrase or opt-in) — the point is you shouldn't have to ask. Right after any `Write`/`Edit` call, `hooks/palimpsest_clean.sh` (`PostToolUse`) runs the file through `integrations/palimpsest/` and rewrites it in place if it finds anything watermark-shaped: invisible Unicode/format-control characters and space homoglyphs in any text file; ancillary `tEXt`/`zTXt`/`iTXt`/`eXIf`/`tIME` chunks in PNG and `APP1`/`APP11`/`COM` segments in JPEG (pixel data untouched — round-trip verified against Pillow); `docProps/core.xml`/`app.xml`/`custom.xml` identity fields in DOCX/XLSX/PPTX plus a Layer-A pass over every text-bearing XML part; best-effort same-length blanking of a PDF's `/Info` dict and XMP packet; `<meta name="generator">` tags and AI-signature comments in HTML/Markdown/SVG.
+
+```
+/palimpsest safe          → default. Layer A + metadata stripping, never rewrites a visible character
+/palimpsest aggressive    → safe, plus folds Cyrillic/fullwidth-Latin lookalikes in plain text (does rewrite visible characters -- real risk to real multilingual content, hence opt-in)
+/palimpsest off           → hook still fires, does no I/O
+"stop palimpsest"          → off, this session
+```
+
+**What this does not cover, stated plainly:** it does not touch the assistant's own chat text before it reaches you — no hook in this platform intercepts a response pre-render, only files a tool call actually writes to disk. It does not detect or remove statistical (token-sampling) watermarks like SynthID-Text or Kirchenbauer green-list schemes — those live in which words a model chose, not in stray codepoints, and no classifier for that exists here. WebP/AVIF/HEIC/BMP/GIF/TIFF images, audio/video, EPUB and ODT aren't ported yet; `format_route.classify()` reports them as unsupported rather than silently skipping. Sensitive paths (`.env`, `.ssh`, `.aws`, `credentials*`, `*.pem`, `*.key`, ...) are never touched.
+
+Renamed on integration from a third-party watermark-removal project, same convention as Apollo/Mnemos/Clio/Laconic/Occam — patterns and format tables extracted, code written fresh (`SKILL.md` §9).
+
+---
+
 ## 7. Self-improvement — Curator, ReasoningBank, Dream
 
 **Nothing here auto-applies. Ever.** Proposals sit in a queue until a human explicitly approves them.
@@ -521,6 +538,7 @@ Also available: `/security-review` for a structured three-phase review of the cu
 | `/security-review` | Three-phase security review of the current branch's diff. Read-only. |
 | `/occam lite\|full\|ultra` | Set the minimal-code level. |
 | `/occam-review` `/occam-audit` `/occam-debt` `/occam-gain` `/occam-help` | The Occam family — see [§6](#6-behavioral-modes--occam--laconic). |
+| `/palimpsest safe\|aggressive\|off` | Watermark-cleaning mode — see [§6b](#6b-palimpsest--no-ai-watermark-leaves-hermes). |
 
 ---
 
@@ -674,6 +692,7 @@ Nothing bypasses Apollo. Nothing bypasses the security gate — it's a `PreToolU
 | **Tier-3 guard** (`tier3.py`) | Availability-only fallback selection with an independent second sensitivity check, Chinese-API exclusion, and EU/US jurisdiction filter (fails closed on unknown jurisdiction). Selects; never dispatches. |
 | **Approval tokens** (`meta/security/approval_token.py`) | Single-use, command-bound, 300s token lets a human approve one specific dangerous command through the otherwise fail-closed hook. |
 | **Laconic / Occam** (`meta/laconic.py`, `meta/occam.py`) | Behavioral modes — how much is said, how much is built. Hook-enforced every turn. |
+| **Palimpsest** (`meta/palimpsest.py`, `integrations/palimpsest/`) | Strips AI-provenance watermarks/metadata from files right after Write/Edit writes them. Mechanical (`PostToolUse` hook), not a model-behavior mode — doesn't touch chat text before render. |
 | **Opt-in integrations** (`integrations/`) | db, webdev, media, kanban, turbo memory, NotebookLM, Composio, synapse, repopack — each independently installable with a verified fallback, none on the critical path. |
 
 ## Model routing
@@ -699,7 +718,7 @@ HERMES never silently substitutes a tier in either direction. If Tier 2 is down,
 | 2 (3B) | Mnemos v2 (HNSW + 3-tier hybrid search), Curator v1 (human-gated proposals), ReasoningBank (reward-scored task memory), Dream consolidation | ✅ Built, unit-tested |
 | 3 (3C) | Cron (durable SQLite scheduler, `.tick.lock`, 3-min interrupt, Mnemos write-back), Delegation (≤3 children, forbidden-tool restriction), Fetcher (Tavily/Firecrawl, SAFE_MODE, SSRF-every-hop), Connect (native MCP client + capability negotiation + PKCE OAuth) | ✅ Built, unit-tested · Tier-2/Tavily/MCP live paths proven on real infra 2026-07-05 (Tier 2 was local Ollama then; now the NVIDIA API — live path unverified since the swap); 6 failure modes tested and fail closed, two CLI robustness bugs found and fixed same session; Apollo's "never silently substitute tiers" rule confirmed live under 3 real Tier-2-outage cases including one adversarial-pressure case (`logs/proof_gate4.md`, `logs/proof_failuremode.md`, `logs/proof_apollo_tier_fallback.md`, all local) — real-daemon-kill, genuinely-revoked-key, and multi-turn/jailbreak robustness of the tier rule remain untested |
 | 4 (3D) | Repeatable 7-layer audit, Clio benchmark baseline, Tier-3 routing guard (2nd sensitivity check + EU/US jurisdiction), D1 interactive approval tokens, streaming think-block scrubber, upstream drift tracker | ✅ Built, unit-tested |
-| 5 | Laconic token-reduction, Occam lazy-minimal-code mode (hook-enforced ladder + 5 satellite skills), opt-in breadth each with a fallback: db, webdev, media, kanban, turbo memory, NotebookLM, Composio | ✅ Built, unit-tested (opt-in, each with fallback) |
+| 5 | Laconic token-reduction, Occam lazy-minimal-code mode (hook-enforced ladder + 5 satellite skills), Palimpsest AI-watermark/provenance-metadata stripping (`PostToolUse` hook on Write/Edit), opt-in breadth each with a fallback: db, webdev, media, kanban, turbo memory, NotebookLM, Composio | ✅ Built, unit-tested (opt-in, each with fallback) |
 | 6 | NYX integration | ⬜ Out of scope — NYX not built yet |
 
 More walkthroughs with captured real output: [docs/WORKFLOWS.md](docs/WORKFLOWS.md). Scheduling setup: [docs/SCHEDULING.md](docs/SCHEDULING.md). Design rationale: [docs/DECISIONS.md](docs/DECISIONS.md).
@@ -728,7 +747,7 @@ More walkthroughs with captured real output: [docs/WORKFLOWS.md](docs/WORKFLOWS.
 | Delegation does nothing | Needs the `claude` CLI on PATH to spawn children. |
 | Fetcher `search` refuses | No `TAVILY_API_KEY`/`FIRECRAWL_API_KEY`. It declines rather than fabricating results; direct `fetch` still works. |
 | A module reports "not installed" | That's the honest fallback, working as designed. Install the underlying tool or use the stated fallback path. |
-| Mode didn't stick across turns | Both Laconic and Occam persist to a flag file under `$CLAUDE_CONFIG_DIR` and reassert per turn — check the hooks are registered with `/hooks`. |
+| Mode didn't stick across turns | Laconic, Occam and Palimpsest all persist to a flag file under `$CLAUDE_CONFIG_DIR`; Laconic/Occam reassert every turn, Palimpsest only reasserts at `SessionStart` since its enforcement is a `PostToolUse` hook, not a per-turn model reminder — check the hooks are registered with `/hooks`. |
 
 ## License
 
