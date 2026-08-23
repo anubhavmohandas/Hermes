@@ -9,7 +9,12 @@ route: "skills/tasks/SKILL.md for tracking; the plan itself is authored in-conve
 1. **What are we planning?** — a build, a research campaign, a pentest engagement, a migration, a launch?
 2. **End state** — how do we know it's done? One measurable sentence.
 3. **Constraints** — deadline, budget, tools you must/can't use, what already exists.
-4. **Depth** — quick brainstorm / structured plan with stages / full design review (challenge assumptions before planning)?
+4. **Depth** — classify the request into one of three paths, say the classification out loud before asking anything else so the user can override it:
+   - **Spike** — a feasibility question ("can we...", "is it possible..."). Output is an answer, not a kept build. State the question and what you'll try in 2-3 sentences, get a nod, then find out. No stages, no plan file.
+   - **Bounded** — a well-scoped change to a flow that already exists in this project (a flag, a small endpoint, a one-file fix). "Already exists to read" is the test — if there's no existing flow to change, it isn't Bounded, it's Architectural. Ask what's needed, present a short design in-conversation, stop for approval.
+   - **Architectural** — new subsystems, or changes that restructure how components fit together or alter interfaces others depend on. Full T1→T2→T3 process below.
+
+   The approval gate before any implementation action is HARD on all three paths — only its ceremony scales with the path.
 
 **Optional**
 5. Risks you already fear — what's most likely to kill this?
@@ -29,9 +34,10 @@ route: "skills/tasks/SKILL.md for tracking; the plan itself is authored in-conve
 
 # Execution
 
-1. **Diverge** — T1 if Q4 ≥ brainstorm; present options, user picks (or asks HERMES to recommend with reasoning).
-2. **Challenge** — T2 on the picked approach if Q4 = design review.
+0. **Classify** — state the Q4 path (Spike / Bounded / Architectural) before the first clarifying question. Spike or Bounded: skip to step 6 after the in-conversation answer/design is approved — no T1-T3, no stages, no plan file.
+1. **Diverge** — T1, Architectural path only; present options, user picks (or asks HERMES to recommend with reasoning).
+2. **Challenge** — T2 on the picked approach, Architectural path only.
 3. **Converge** — T3 into the staged plan with exit gates (Q7).
 4. **Track** — hand stages to `skills/tasks` (TaskCreate) so progress is tracked; big multi-session plans also get written to a plan file the user names.
 5. **Log** — Mnemos write ("plan: <goal> — <n> stages") + ReasoningBank per Apollo §2.
-6. **Deliver** — the plan + the single next concrete action (HERMES house rule: always name the next action).
+6. **Deliver** — the plan (or the Spike/Bounded answer) + the single next concrete action (HERMES house rule: always name the next action).
