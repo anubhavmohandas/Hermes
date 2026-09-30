@@ -91,12 +91,12 @@ skipped in either mode.
 
    **Component sources (React/Next + Tailwind v4 only):** before
    hand-building a section, run `skills/webdev/component-sources.md` —
-   Watermelon UI (`npx shadcn@latest add "https://registry.watermelon.sh/<name>.json"`)
+   Watermelon UI (`npx shadcn@latest add "https://registry.watermelon.sh/r/<name>.json"`)
    for structure/blocks/dashboards, motion-primitives for the motion layer,
    `python3 integrations/svg_bg.py <kind>` for Haikei-style SVG
    backgrounds/dividers (works on every stack). Re-token installed
-   components to the step-2 palette; resolve the framer-motion vs `motion`
-   duplicate per that file.
+   components to the step-2 palette; resolve motion/icon-library
+   duplicates per that file's "Bundle hygiene".
 
    **Which edit tool, and verifying it landed:** run every file change in
    this step and step 4 through `skills/webdev/edit-discipline.md` — the

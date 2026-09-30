@@ -781,8 +781,17 @@ follow-up work, not blockers.
   autonomous run, preview, ship) reimplemented as `autopilot.md`. Deploys stay
   preview/draft-only; prod is always a stop-and-ask.
 
-**Open:** motion-primitives CLI (`npx motion-primitives@latest add`) not
-verified live; copy-from-docs is the documented path. `blurry-gradient`
-verified in XML only — cairosvg ignores feGaussianBlur, browser render unchecked.
+**Follow-up verification (same day):**
+- Watermelon install URL corrected: it's `registry.watermelon.sh/r/<name>.json`
+  (the `/r/` was missing; bare path returns the SPA HTML). Verified with a
+  real `npx shadcn add` of `card-swipe-base`. Registry index has ~1,178 items.
+- Dependency picture corrected: most Watermelon items use `motion` (390),
+  only ~75 use `framer-motion`. Bigger bundle risk is icon-lib sprawl
+  (lucide / react-icons / hugeicons / tabler) — documented under "Bundle hygiene".
+- The shadcn CLI resolved Watermelon's `utils` dep to shadcn's own `cn` npm
+  package (maintainer: shadcn, repo shadcn-ui/cn) — legit, flagged as a diff.
+- `npx motion-primitives@latest add <name>` verified live (v0.1.0) — imports
+  `motion/react`, auto-installs `motion`.
+- `blurry-gradient` verified rendering correctly in headless Chromium.
 
 **Status: CLOSED** for scope above.
