@@ -32,5 +32,6 @@ route: "spec-first build (spec-kit pattern from Extractions), Claude Code native
 2. **Build** — T2 order: tests → implementation → make tests pass. Match HERMES house style (stdlib-first, honest errors, no silent fallbacks).
 3. **Verify** — run the example from Q1 for real; run the tests; show output.
 4. **Security** — if the tool touches URLs/paths/secrets, route through `meta/security` layers (url_safety, path_security, redact) — a personal tool still gets the gate.
-5. **Log** — Mnemos + ReasoningBank per Apollo §2.
-6. **Deliver** — path, usage line, test results, and what it deliberately does NOT do.
+5. **Halt conditions** — during Build/Verify, only four things stop unattended progress and force a check-in: an irreversible or destructive operation (overwrite, delete, force-push); a security-sensitive action (credentials, auth, network egress the spec didn't name); a side effect outside the tool's own workspace (touching files/state the spec never scoped in); or the spec turning out too broken to implement without guessing. Everything else — a failing test, an ambiguous but resolvable edge case, a missing but inferable detail — gets a documented judgment call, not a stall.
+6. **Log** — Mnemos + ReasoningBank per Apollo §2.
+7. **Deliver** — path, usage line, test results, and what it deliberately does NOT do.

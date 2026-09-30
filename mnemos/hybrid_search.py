@@ -74,10 +74,18 @@ def regex_scan_messages(patterns, db_path: Path = store.DEFAULT_DB_PATH, limit: 
         # so every Tier B lookup loaded the whole vault into RAM. LIKE is
         # ASCII-case-insensitive in SQLite, which is the same matching the
         # Python `needle.lower() in content.lower()` did.
+        # ORDER BY id DESC before LIMIT — a bare LIMIT with no ORDER BY has no
+        # guaranteed row order in SQLite; which rows get truncated is
+        # implementation-defined and can shift between runs (query planner,
+        # WAL checkpoints, vacuum). Same bug class ruflo (ex-claude-flow)
+        # fixed 2026-08 ("unordered LIMIT truncation in search"); confirmed
+        # here via upstream drift review 2026-09-01 — Tier A already orders
+        # by rank, this was the one unordered path. DESC = most recent
+        # matches first, consistent with a memory-recall use case.
         for kind, needle in patterns:
             rows = conn.execute(
                 "SELECT id, session_id, role, content, created_at FROM messages "
-                "WHERE content LIKE ? ESCAPE '\\' LIMIT ?",
+                "WHERE content LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ?",
                 (f"%{_like_escape(needle)}%", limit)).fetchall()
             for r in rows:
                 hits.append({
@@ -122,6 +130,14 @@ def resolve_confidence(query, tier_a, tier_b, tier_c):
       4. Only Tier C hits, best similarity >= 0.45 -> LOW
          (flag explicitly: lexical-overlap embedder, not true semantic).
       5. Nothing above threshold -> NONE, say so, don't fabricate a hit.
+
+    Checked 2026-09-20 against ruflo's upstream fix "stop misreporting
+    bridge brute-force search as HNSW-accelerated" (#3006): that failure
+    mode doesn't apply here — resolved_tier is only ever "tier_c_semantic"
+    when HNSW_AVAILABLE is True (hybrid_search's tier_c stays [] otherwise,
+    see the HNSW_AVAILABLE guard above), and the reason string already
+    distinguishes the nvidia embedder from the hashing-trick fallback. No
+    code change; confirming this stays true is the point of the review.
     """
     if tier_b:
         return "HIGH", "tier_b_regex", "exact structured pattern match (CVE id / path / hash)"

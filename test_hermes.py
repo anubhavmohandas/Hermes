@@ -69,6 +69,7 @@ import oauth_pkce
 import laconic_compress
 import turbo_memory
 import webdev
+import svg_bg
 import notebooklm
 import composio
 import synapse
@@ -2002,6 +2003,24 @@ class TestIntegrations(HermesTestCase):
         css = files["Button.css"]
         self.assertIn("var(--color-accent)", css)
 
+    def test_svg_bg_deterministic_and_valid(self):
+        import xml.dom.minidom
+        cols = ["#0b0d10", "#4f8cff", "#9b5cff"]
+        for kind in svg_bg.KINDS:
+            a = svg_bg.generate(kind, seed=5, colors=cols)
+            self.assertEqual(a, svg_bg.generate(kind, seed=5, colors=cols), kind)
+            xml.dom.minidom.parseString(a)
+            self.assertIn('aria-hidden="true"', a)
+        self.assertNotEqual(svg_bg.generate("blob", seed=1, colors=cols),
+                            svg_bg.generate("blob", seed=2, colors=cols))
+        with self.assertRaises(ValueError):
+            svg_bg.generate("nope")
+
+    def test_webdev_subskills_wired(self):
+        skill = (ROOT / "skills/webdev/SKILL.md").read_text()
+        for f in ("component-sources.md", "autopilot.md", "svg_bg.py"):
+            self.assertIn(f, skill)
+            
     def test_notebooklm_refuses_online_for_sensitive(self):
         d = self.tmpdir()
         sens = d / "s.txt"

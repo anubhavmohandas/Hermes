@@ -760,3 +760,29 @@ isn't HERMES.
 
 **Status: CLOSED** for the routing-logic scope stated above. Items 1–3 are
 follow-up work, not blockers.
+
+---
+
+## 2026-09-30 — webdev: Watermelon UI, motion-primitives, Haikei, Manus-style autopilot
+
+**Added:** `skills/webdev/component-sources.md`, `skills/webdev/autopilot.md`,
+`integrations/svg_bg.py`; wired into `skills/webdev/SKILL.md` step 3 + Mode,
+`prompts/website.md` Q12.
+
+- **Watermelon UI** (MIT, shadcn registry `registry.watermelon.sh`) and
+  **motion-primitives** (MIT, beta) are installed into the user's project by
+  their own CLI — not vendored, Invariant #4 intact. React + Tailwind v4 only.
+- Known conflict: Watermelon uses `framer-motion`, motion-primitives uses
+  `motion`. Default: rewrite to `motion/react`, drop framer-motion.
+- **Haikei** has no API/CLI (GUI + Figma plugin only) → `svg_bg.py`
+  reimplements its shape families fresh, seeded and token-driven.
+- **Manus** rejected as an integration: paid credit-metered agent; delegating
+  the build loses design system/tests/Mnemos. Its loop shape (todo.md plan,
+  autonomous run, preview, ship) reimplemented as `autopilot.md`. Deploys stay
+  preview/draft-only; prod is always a stop-and-ask.
+
+**Open:** motion-primitives CLI (`npx motion-primitives@latest add`) not
+verified live; copy-from-docs is the documented path. `blurry-gradient`
+verified in XML only — cairosvg ignores feGaussianBlur, browser render unchecked.
+
+**Status: CLOSED** for scope above.

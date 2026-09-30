@@ -19,6 +19,7 @@ route: "skills/webdev/SKILL.md (design: ui-ux-pro-max + frontend-design; build: 
 9. Must-have functionality — forms, auth, search, animations, charts, payments?
 10. Responsive targets — mobile-first, desktop-first, both equally? (default: both, mobile-checked)
 11. Where does it live — local folder only, or deploy target (Vercel/Netlify/GitHub Pages) to keep in mind?
+12. Build mode — step-by-step with check-ins (default), or autopilot (Manus-style end-to-end, `skills/webdev/autopilot.md`)?
 
 # Templates
 

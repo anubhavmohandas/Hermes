@@ -15,6 +15,7 @@ route: "skills/tasks/SKILL.md for tracking; the plan itself is authored in-conve
    - **Architectural** — new subsystems, or changes that restructure how components fit together or alter interfaces others depend on. Full T1→T2→T3 process below.
 
    The approval gate before any implementation action is HARD on all three paths — only its ceremony scales with the path.
+   Ratchet, one-way: if execution reveals more complexity than the classification assumed, stop, say so, and move up a path (Bounded → Architectural). Never move down mid-task — a plan already committed to the heavier path doesn't get demoted because the remaining work looks easy.
 
 **Optional**
 5. Risks you already fear — what's most likely to kill this?
@@ -34,7 +35,7 @@ route: "skills/tasks/SKILL.md for tracking; the plan itself is authored in-conve
 
 # Execution
 
-0. **Classify** — state the Q4 path (Spike / Bounded / Architectural) before the first clarifying question. Spike or Bounded: skip to step 6 after the in-conversation answer/design is approved — no T1-T3, no stages, no plan file.
+0. **Classify** — state the Q4 path (Spike / Bounded / Architectural) before the first clarifying question. Spike or Bounded: skip to step 6 after the in-conversation answer/design is approved — no T1-T3, no stages, no plan file. Watch for the ratchet mid-execution: if a Bounded task turns out to touch an interface others depend on, stop and re-classify Architectural before continuing.
 1. **Diverge** — T1, Architectural path only; present options, user picks (or asks HERMES to recommend with reasoning).
 2. **Challenge** — T2 on the picked approach, Architectural path only.
 3. **Converge** — T3 into the staged plan with exit gates (Q7).

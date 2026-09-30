@@ -1,6 +1,6 @@
 ---
 name: hermes-webdev
-description: "HERMES web/mobile development sub-skill. Apollo routes here for website / landing page / web app / dashboard / frontend / mobile app requests (usually via skills/create intake first). Wires the installed design-intelligence skills (ui-ux-pro-max, frontend-design, theme-factory, webapp-testing) plus the native animation-craft and build-loop sub-skills and integrations/webdev.py tokens into an actual build: design system → scaffold → sections (TDD build-loop for real logic) → motion + anti-slop + critique QA → deliver."
+description: "HERMES web/mobile development sub-skill. Apollo routes here for website / landing page / web app / dashboard / frontend / mobile app requests (usually via skills/create intake first). Wires the installed design-intelligence skills (ui-ux-pro-max, frontend-design, theme-factory, webapp-testing) plus the native animation-craft, build-loop, component-sources (Watermelon UI / motion-primitives / Haikei-style SVG) and autopilot sub-skills and integrations/webdev.py tokens into an actual build: design system → scaffold → sections (TDD build-loop for real logic) → motion + anti-slop + critique QA → deliver."
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 user-invocable: true
 ---
@@ -27,6 +27,14 @@ steps 1 and 5; `browser-harness`'s coordinate-click fallback folded into
 step 5). None of these are silently absent anymore — where a step needs an
 MCP server that isn't configured, the pipeline says so explicitly instead
 of skipping quietly.
+
+## Mode
+
+Default: confirm-each-phase (below). If the user asks for "autopilot" /
+"just build it end-to-end", run the same pipeline under
+`skills/webdev/autopilot.md` (Manus-style: `todo.md` plan file, no
+mid-build check-ins, live preview, opt-in draft deploy). Intake is never
+skipped in either mode.
 
 ## The build pipeline
 
@@ -80,6 +88,15 @@ of skipping quietly.
      starts.
    - React Native/Expo → screens + navigation, tokens via the JSON
      mirror.
+
+   **Component sources (React/Next + Tailwind v4 only):** before
+   hand-building a section, run `skills/webdev/component-sources.md` —
+   Watermelon UI (`npx shadcn@latest add "https://registry.watermelon.sh/<name>.json"`)
+   for structure/blocks/dashboards, motion-primitives for the motion layer,
+   `python3 integrations/svg_bg.py <kind>` for Haikei-style SVG
+   backgrounds/dividers (works on every stack). Re-token installed
+   components to the step-2 palette; resolve the framer-motion vs `motion`
+   duplicate per that file.
 
    **Which edit tool, and verifying it landed:** run every file change in
    this step and step 4 through `skills/webdev/edit-discipline.md` — the
@@ -179,6 +196,12 @@ of skipping quietly.
    includes folder path + screenshots + where to edit what.
 
 ## Honest limits
+
+- Watermelon UI and motion-primitives are React + Tailwind only; plain
+  HTML and Expo builds don't get them — say so, don't fake a port.
+  motion-primitives is upstream-beta. Haikei itself has no API;
+  `integrations/svg_bg.py` is a reimplementation of its shape families,
+  not the tool.
 
 - This produces real front-ends and Expo apps; it does not provision
   backends, databases, or deployments — `integrations/db/store.py` covers
