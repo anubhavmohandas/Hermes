@@ -9,27 +9,29 @@
 # session starts.
 #
 # SessionStart hooks are advisory (they cannot block a session), so this
-# always exits 0 — findings are printed loudly for Apollo's status line and
-# the user, per SKILL.md §1 ("say so plainly rather than silently continuing").
+# always exits 0. Findings go to STDOUT: SessionStart adds stdout to the
+# session context, while stderr only shows in verbose mode — the old stderr
+# output meant a quarantine finding reached neither the model nor the user.
+# Clean sweeps print nothing, so a healthy session carries no extra context.
+
+cat >/dev/null
 
 HERMES_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GUARD="$HERMES_ROOT/meta/security/skills_guard.py"
 
-STATUS=0
+command -v python3 >/dev/null 2>&1 || exit 0
+
+FOUND=""
 for target in "$HERMES_ROOT/skills" "$HERMES_ROOT/SKILL.md" "$HERMES_ROOT/.claude-plugin"; do
     [ -e "$target" ] || continue
-    OUT="$(python3 "$GUARD" "$target" 2>&1)" || STATUS=1
-    if [ "$STATUS" -ne 0 ]; then
-        echo "skills_scan.sh: QUARANTINE finding in $target — treat these skills as untrusted until reviewed:" >&2
-        echo "$OUT" >&2
-        STATUS=0  # keep scanning remaining targets; hook stays advisory
+    if ! OUT="$(python3 "$GUARD" "$target" 2>&1)"; then
+        echo "skills_scan.sh: QUARANTINE finding in $target — treat these skills as untrusted until reviewed:"
+        echo "$OUT"
         FOUND=1
     fi
 done
 
 if [ -n "$FOUND" ]; then
-    echo "skills_scan.sh: dangerous patterns found in skill files (see above). Enforcement: writes to skill files are blocked at the PreToolUse gate; this sweep catches out-of-band edits." >&2
-else
-    echo "skills_scan.sh: all skill files CLEAN" >&2
+    echo "skills_scan.sh: dangerous patterns found in skill files (see above). Tell the user plainly before doing anything else. Writes to skill files are blocked at the PreToolUse gate; this sweep catches out-of-band edits."
 fi
 exit 0

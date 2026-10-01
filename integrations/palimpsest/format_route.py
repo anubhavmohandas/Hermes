@@ -141,8 +141,10 @@ def clean_path(path: Path, *, in_place: bool = True, aggressive: bool = False) -
         text = data.decode("utf-8")
     except UnicodeDecodeError:
         return {"status": "unsupported", "format": "text", "reason": "not valid UTF-8 — refusing to guess"}
-    text, n_entity = clean_entity_references(text)
-    text, stats = clean_text(text, aggressive_confusables=aggressive)
+    # NBSP / narrow NBSP are real typography (French, Intl.NumberFormat
+    # output), so space folding rides with aggressive, not the safe default.
+    text, n_entity = clean_entity_references(text, normalize_spaces=aggressive)
+    text, stats = clean_text(text, normalize_spaces=aggressive, aggressive_confusables=aggressive)
     n = n_entity + stats["removed_count"] + stats["replaced_count"]
     out_bytes = text.encode("utf-8")
     changed = out_bytes != data

@@ -112,6 +112,16 @@ LATIN_CONFUSABLES: dict[int, str] = {**_CYRILLIC_CONFUSABLES, **_FULLWIDTH_CONFU
 # preserving emoji over aggressive stripping. -----------------------------
 _EMOJI_GLUE = frozenset({0x200D, 0xFE0E, 0xFE0F})
 
+# --- Script glue: ZWJ/ZWNJ shape Indic conjuncts (Malayalam chillu, Hindi
+# half-forms) and Persian/Urdu words; LRM/RLM/ALM order Hebrew/Arabic text.
+# Load-bearing next to a non-Latin letter or mark, so kept there. Between
+# ASCII letters they carry no meaning and are still stripped as carriers.
+_SCRIPT_GLUE = frozenset({0x200C, 0x200D, 0x200E, 0x200F, 0x061C})
+
+
+def _is_script_char(cp: int | None) -> bool:
+    return cp is not None and cp > 0x024F and unicodedata.category(chr(cp))[0] in "LM"
+
 
 def _is_emoji_base(cp: int | None) -> bool:
     if cp is None:
@@ -133,7 +143,7 @@ def _char_label(ch: str) -> str:
 def clean_text(
     text: str,
     *,
-    normalize_spaces: bool = True,
+    normalize_spaces: bool = False,
     aggressive_confusables: bool = False,
     nfkc: bool = False,
 ) -> tuple[str, dict]:
@@ -156,6 +166,9 @@ def clean_text(
         next_cp = ord(text[i + 1]) if i + 1 < n else None
 
         if cp in _EMOJI_GLUE and (_is_emoji_base(prev_cp) or _is_emoji_base(next_cp)):
+            out.append(ch)
+            continue
+        if cp in _SCRIPT_GLUE and (_is_script_char(prev_cp) or _is_script_char(next_cp)):
             out.append(ch)
             continue
         if cp in TAG_RANGE:
@@ -210,7 +223,7 @@ def clean_text(
 _ENTITY_RE = re.compile(r"&#(x?)([0-9a-fA-F]+);")
 
 
-def clean_entity_references(text: str) -> tuple[str, int]:
+def clean_entity_references(text: str, normalize_spaces: bool = False) -> tuple[str, int]:
     count = 0
 
     def _sub(m: re.Match) -> str:
@@ -222,7 +235,7 @@ def clean_entity_references(text: str) -> tuple[str, int]:
         if _is_strip_cp(cp):
             count += 1
             return ""
-        if cp in SPACE_HOMOGLYPHS:
+        if normalize_spaces and cp in SPACE_HOMOGLYPHS:
             count += 1
             return " "
         return m.group(0)

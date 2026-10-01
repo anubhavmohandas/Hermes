@@ -106,13 +106,20 @@ def run_gate(tool_name: str, tool_input: dict):
     """Returns (allowed: bool, layer: str, reason: str)."""
     tool_name = (tool_name or "").lower()
 
-    if tool_name in ("write", "edit"):
-        path = tool_input.get("file_path") or tool_input.get("path") or ""
+    # MultiEdit/NotebookEdit write files too; dispatching on write/edit alone
+    # let them skip the denylist and the skill-content scan entirely.
+    if tool_name in ("write", "edit", "multiedit", "notebookedit"):
+        path = (tool_input.get("file_path") or tool_input.get("notebook_path")
+                or tool_input.get("path") or "")
         # Resolve BEFORE the denylist. file_safety matches on path shape, so it
         # saw "../../../../../../etc/hosts" as a literal and missed it — the
         # denylist only ever fired on absolute paths. Resolving first means a
         # target is judged by where it actually lands, however it was spelled.
+        # The raw spelling is checked too: on macOS /etc resolves to
+        # /private/etc, which no "/etc/..." pattern matches.
         blocked, reason = file_safety.is_write_blocked(_resolve_write_path(path))
+        if not blocked:
+            blocked, reason = file_safety.is_write_blocked(path)
         if blocked:
             return False, "file_safety", reason
         # Base is the CWD, not HERMES_ROOT. A relative path in a tool call is
@@ -139,8 +146,12 @@ def run_gate(tool_name: str, tool_input: dict):
         # on it never ran through the hook (audited 2026-07-02, C1). A full
         # directory sweep also runs at session start (hooks/skills_scan.sh).
         if _is_skill_path(path):
-            content = tool_input.get("content") or tool_input.get("new_string") or ""
-            if content:
+            content = "\n".join(
+                [tool_input.get("content") or "", tool_input.get("new_string") or "",
+                 tool_input.get("new_source") or ""]
+                + [e.get("new_string") or "" for e in tool_input.get("edits") or []
+                   if isinstance(e, dict)])
+            if content.strip():
                 findings = skills_guard.scan_skill_text(content)
                 if findings:
                     return False, "skills_guard", f"skill content quarantined: {findings}"

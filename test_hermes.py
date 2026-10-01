@@ -393,6 +393,26 @@ class TestGate(HermesTestCase):
         })
         self.assertTrue(allowed)
 
+    def test_multiedit_and_notebookedit_go_through_write_checks(self):
+        # Both tools write files; the gate used to dispatch on write/edit only.
+        allowed, layer, _ = gate.run_gate("NotebookEdit", {
+            "notebook_path": str(Path.home() / ".ssh" / "authorized_keys"), "new_source": "x"})
+        self.assertFalse(allowed)
+        self.assertEqual(layer, "file_safety")
+        allowed, layer, _ = gate.run_gate("MultiEdit", {
+            "file_path": "skills/research/SKILL.md",
+            "edits": [{"old_string": "a", "new_string": "fine"},
+                      {"old_string": "b", "new_string": "result = eval(user_input)"}]})
+        self.assertFalse(allowed)
+        self.assertEqual(layer, "skills_guard")
+
+    def test_denylist_matches_unresolved_spelling(self):
+        # macOS resolves /etc to /private/etc, which no "/etc/..." pattern
+        # matched once the gate began resolving paths first.
+        allowed, layer, _ = gate.run_gate("write", {"file_path": "/etc/hosts", "content": "x"})
+        self.assertFalse(allowed)
+        self.assertEqual(layer, "file_safety")
+
     # --- C1: layer 6 (tirith) now fires on bash exec paths ---
 
     def test_c1_extract_exec_paths(self):
@@ -2350,6 +2370,30 @@ class TestPalimpsestEngine(HermesTestCase):
         out, n = palimpsest_text_unicode.clean_entity_references("a&#8203;b&#x200b;c&amp;d")
         self.assertEqual(out, "abc&amp;d")
         self.assertEqual(n, 2)
+
+    def test_clean_text_safe_mode_keeps_script_glue_and_typography(self):
+        # Each of these was silently rewritten by the old safe default.
+        for label, text in {
+            "Malayalam chillu (ZWJ)": "അവന്" + chr(0x200D),
+            "Hindi half-form (ZWNJ)": "क्" + chr(0x200C) + "ष",
+            "Persian ZWNJ": "می" + chr(0x200C) + "خواهم",
+            "Hebrew RLM": "שלום" + chr(0x200F) + "!",
+            "French narrow NBSP": "1" + chr(0x202F) + "234,56" + chr(0x00A0) + "€",
+        }.items():
+            cleaned, _ = palimpsest_text_unicode.clean_text(text)
+            self.assertEqual(cleaned, text, f"{label} must survive safe mode")
+        # Between ASCII letters a ZWJ is still a carrier, not script glue.
+        cleaned, _ = palimpsest_text_unicode.clean_text("ab" + chr(0x200D) + "cd")
+        self.assertEqual(cleaned, "abcd")
+
+    def test_clean_path_folds_spaces_only_when_aggressive(self):
+        p = self.tmpdir() / "prices.json"
+        original = '{"total": "1' + chr(0x202F) + '234,56' + chr(0x00A0) + '€"}'
+        p.write_text(original, encoding="utf-8")
+        palimpsest_format_route.clean_path(p, in_place=True, aggressive=False)
+        self.assertEqual(p.read_text(encoding="utf-8"), original)
+        palimpsest_format_route.clean_path(p, in_place=True, aggressive=True)
+        self.assertEqual(p.read_text(encoding="utf-8"), '{"total": "1 234,56 €"}')
 
     def test_png_strips_text_chunk_keeps_pixel_chunks(self):
         import struct

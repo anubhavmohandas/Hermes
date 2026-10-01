@@ -105,3 +105,6 @@ integrations/composio_registry.json
 .claude_config/
 .claude_config_batch1/
 .claude_config_batch2/
+
+# Stray Claude config dir (machine/user IDs, session transcripts) — committed by accident in eeb71ff
+.hermes_state/

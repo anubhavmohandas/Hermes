@@ -24,8 +24,9 @@ exposed by the hook system."
 Two runtime levels plus off:
   safe       (default) — Layer A invisible-Unicode strip + all metadata
              stripping. Never rewrites a visible character.
-  aggressive — safe, plus folds Cyrillic/fullwidth-Latin confusables in
-             plain-text files. This DOES rewrite visible characters, so it
+  aggressive — safe, plus folds Cyrillic/fullwidth-Latin confusables and
+             NBSP-family spaces in plain-text files. This DOES rewrite
+             visible characters (and French/Intl number spacing), so it
              is not the default — only turn it on for content known to be
              Latin-script that acquired lookalike substitutions.
   off        — hook still fires but performs no I/O.
